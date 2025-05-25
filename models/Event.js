@@ -1,7 +1,5 @@
-// models/Event.js
 const mongoose = require("mongoose");
 
-// Define the main Event schema with enhanced fields
 const EventSchema = new mongoose.Schema({
   // Basic Event Information
   name: {
@@ -85,10 +83,29 @@ const EventSchema = new mongoose.Schema({
     type: String 
   },
   
-  // Classification & Categorization
+  // Enhanced Classification & Categorization
   genres: [{ 
     type: String 
   }], // Flattened array of all genres for easy filtering
+  
+  // Enhanced genre representation for ML matching
+  genreVector: {
+    // Primary genres with confidence scores (0-100)
+    primary: {
+      type: Map,
+      of: Number
+    },
+    // Secondary genres with confidence scores (0-100)
+    secondary: {
+      type: Map,
+      of: Number
+    },
+    // Genre diversity index (0-100, higher means more diverse)
+    diversityIndex: {
+      type: Number
+    }
+  },
+  
   classifications: [{
     primary: { type: Boolean },
     segment: {
@@ -113,7 +130,7 @@ const EventSchema = new mongoose.Schema({
     }
   }],
   
-  // Artists & Performers
+  // Enhanced Artists & Performers
   artists: [{
     name: { type: String },
     id: { type: String },
@@ -121,11 +138,107 @@ const EventSchema = new mongoose.Schema({
     image: { type: String },
     genres: [{ type: String }],
     popularity: { type: Number },
-    headliner: { type: Boolean }
+    headliner: { type: Boolean },
+    // New fields for ML matching
+    spotifyId: { type: String },
+    monthlyListeners: { type: Number },
+    followerCount: { type: Number }
   }],
   artistList: [{ 
     type: String 
   }], // Flattened array of artist names for frontend
+  
+  // Enhanced Sound Characteristics (for matching with user profiles)
+  characteristics: {
+    // Core characteristics (0-100 scale)
+    melody: { type: Number },
+    danceability: { type: Number },
+    energy: { type: Number },
+    tempo: { type: Number },
+    obscurity: { type: Number },
+    
+    // Additional characteristics (0-100 scale)
+    acousticness: { type: Number },
+    instrumentalness: { type: Number },
+    liveness: { type: Number },
+    valence: { type: Number },
+    
+    // Sound DNA (dimensionality-reduced representation)
+    soundDNA: [{ type: Number }],
+    
+    // Confidence score for characteristics (0-100)
+    confidenceScore: { type: Number },
+    
+    // Source of characteristics (artist-derived, genre-derived, or direct)
+    characteristicsSource: { 
+      type: String,
+      enum: ['artist', 'genre', 'direct'],
+      default: 'genre'
+    }
+  },
+  
+  // Contextual Factors (for contextual matching)
+  contextualFactors: {
+    // Seasonal positioning (0-100 scores)
+    seasonal: {
+      spring: { type: Number },
+      summer: { type: Number },
+      fall: { type: Number },
+      winter: { type: Number }
+    },
+    
+    // Time factors
+    timeOfDay: { 
+      type: String,
+      enum: ['morning', 'afternoon', 'evening', 'night']
+    },
+    dayOfWeek: { 
+      type: Number // 0-6, Sunday-Saturday
+    },
+    weekend: { 
+      type: Boolean
+    },
+    
+    // Venue factors
+    indoorOutdoor: { 
+      type: String,
+      enum: ['indoor', 'outdoor', 'mixed', 'unknown'],
+      default: 'unknown'
+    },
+    venueSize: { 
+      type: String,
+      enum: ['intimate', 'small', 'medium', 'large', 'festival', 'unknown'],
+      default: 'unknown'
+    },
+    
+    // Event type factors
+    isFestival: { 
+      type: Boolean,
+      default: false
+    },
+    isRecurring: { 
+      type: Boolean,
+      default: false
+    }
+  },
+  
+  // Recommendation Metrics
+  recommendationMetrics: {
+    // Popularity score (0-100)
+    popularityScore: { type: Number },
+    
+    // Trending score (0-100, higher means more trending)
+    trendingScore: { type: Number },
+    
+    // Uniqueness score (0-100, higher means more unique)
+    uniquenessScore: { type: Number },
+    
+    // User interaction metrics
+    clickCount: { type: Number, default: 0 },
+    saveCount: { type: Number, default: 0 },
+    attendCount: { type: Number, default: 0 },
+    averageRating: { type: Number }
+  },
   
   // Promoter & Organizer
   promoter: {
@@ -167,19 +280,6 @@ const EventSchema = new mongoose.Schema({
     }]
   },
   
-  // Sound Characteristics (for matching with user profiles)
-  characteristics: {
-    melody: { type: Number }, // 0-100 scale
-    danceability: { type: Number }, // 0-100 scale
-    energy: { type: Number }, // 0-100 scale
-    tempo: { type: Number }, // 0-100 scale
-    obscurity: { type: Number }, // 0-100 scale
-    acousticness: { type: Number },
-    instrumentalness: { type: Number },
-    liveness: { type: Number },
-    valence: { type: Number } // Musical positiveness
-  },
-  
   // Source Tracking
   source: { 
     type: String, 
@@ -218,16 +318,14 @@ EventSchema.index({ source: 1, sourceId: 1 }, { unique: true });
 EventSchema.index({ date: 1 });
 EventSchema.index({ "venue.city": 1 });
 EventSchema.index({ genres: 1 });
+EventSchema.index({ "artists.name": 1 });
+EventSchema.index({ "genreVector.primary": 1 });
+EventSchema.index({ "characteristics.energy": 1, "characteristics.danceability": 1 });
+EventSchema.index({ "recommendationMetrics.popularityScore": 1 });
 
 // Middleware to update the `updatedAt` field on save
 EventSchema.pre("save", function (next) {
   this.updatedAt = Date.now();
-  next();
-});
-
-// Mongoose 6+ uses updateOne context slightly differently for hooks
-EventSchema.pre("updateOne", function (next) {
-  this.set({ updatedAt: new Date() });
   next();
 });
 
