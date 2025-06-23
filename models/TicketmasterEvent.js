@@ -1,0 +1,338 @@
+const mongoose = require("mongoose");
+
+// TicketmasterEvent Schema - Dedicated collection for raw Ticketmaster events
+// This is part of the unified backend preprocessing architecture
+// Raw events from Ticketmaster are stored here before being processed into the unified collection
+
+const TicketmasterEventSchema = new mongoose.Schema({
+  // Basic Event Information
+  name: {
+    type: String,
+    required: true,
+  },
+  description: {
+    type: String,
+  },
+  status: {
+    type: String,
+    enum: ['active', 'cancelled', 'postponed', 'rescheduled'],
+    default: 'active'
+  },
+  
+  // Temporal Information
+  date: {
+    type: Date,
+    required: true,
+  },
+  startTime: {
+    type: String,
+  },
+  endTime: {
+    type: String,
+  },
+  doorTime: {
+    type: String,
+  },
+  
+  // Location Information
+  venue: {
+    name: { type: String },
+    address: { type: String },
+    city: { type: String },
+    state: { type: String },
+    country: { type: String },
+    postalCode: { type: String },
+    type: { type: String },
+    capacity: { type: Number },
+    url: { type: String }
+  },
+  location: {
+    type: {
+      type: String,
+      enum: ["Point"],
+      required: true,
+      default: "Point",
+    },
+    coordinates: {
+      type: [Number], // [longitude, latitude]
+      required: true,
+    },
+  },
+  
+  // Visual Assets
+  images: [{
+    url: { type: String },
+    ratio: { type: String },
+    width: { type: Number },
+    height: { type: Number },
+    fallback: { type: Boolean }
+  }],
+  primaryImage: { 
+    type: String // URL to primary image for quick access
+  },
+  image: {
+    type: String, // Legacy field for backward compatibility
+  },
+  
+  // Pricing Information
+  priceRange: {
+    min: { type: Number },
+    max: { type: Number },
+    currency: { type: String }
+  },
+  price: { 
+    type: String // Formatted price string for frontend display
+  },
+  ticketLimit: { 
+    type: String 
+  },
+  
+  // Enhanced Classification & Categorization
+  genres: [{ 
+    type: String 
+  }], // Flattened array of all genres for easy filtering
+  
+  // Enhanced genre representation for ML matching
+  genreVector: {
+    // Primary genres with confidence scores (0-100)
+    primary: {
+      type: Map,
+      of: Number
+    },
+    // Secondary genres with confidence scores (0-100)
+    secondary: {
+      type: Map,
+      of: Number
+    },
+    // Genre diversity index (0-100, higher means more diverse)
+    diversityIndex: {
+      type: Number
+    }
+  },
+  
+  classifications: [{
+    primary: { type: Boolean },
+    segment: {
+      id: { type: String },
+      name: { type: String }
+    },
+    genre: {
+      id: { type: String },
+      name: { type: String }
+    },
+    subGenre: {
+      id: { type: String },
+      name: { type: String }
+    },
+    type: {
+      id: { type: String },
+      name: { type: String }
+    },
+    subType: {
+      id: { type: String },
+      name: { type: String }
+    }
+  }],
+  
+  // Enhanced Artists & Performers
+  artists: [{
+    name: { type: String },
+    id: { type: String },
+    url: { type: String },
+    image: { type: String },
+    genres: [{ type: String }],
+    popularity: { type: Number },
+    headliner: { type: Boolean },
+    // New fields for ML matching
+    spotifyId: { type: String },
+    monthlyListeners: { type: Number },
+    followerCount: { type: Number }
+  }],
+  artistList: [{ 
+    type: String 
+  }], // Flattened array of artist names for frontend
+  
+  // Enhanced Sound Characteristics (for matching with user profiles)
+  characteristics: {
+    // Core characteristics (0-100 scale)
+    melody: { type: Number },
+    danceability: { type: Number },
+    energy: { type: Number },
+    tempo: { type: Number },
+    obscurity: { type: Number },
+    
+    // Additional characteristics (0-100 scale)
+    acousticness: { type: Number },
+    instrumentalness: { type: Number },
+    liveness: { type: Number },
+    valence: { type: Number },
+    
+    // Sound DNA (dimensionality-reduced representation)
+    soundDNA: [{ type: Number }],
+    
+    // Confidence score for characteristics (0-100)
+    confidenceScore: { type: Number },
+    
+    // Source of characteristics (artist-derived, genre-derived, or direct)
+    characteristicsSource: { 
+      type: String,
+      enum: ['artist', 'genre', 'direct'],
+      default: 'genre'
+    }
+  },
+  
+  // Contextual Factors (for contextual matching)
+  contextualFactors: {
+    // Seasonal positioning (0-100 scores)
+    seasonal: {
+      spring: { type: Number },
+      summer: { type: Number },
+      fall: { type: Number },
+      winter: { type: Number }
+    },
+    
+    // Time factors
+    timeOfDay: { 
+      type: String,
+      enum: ['morning', 'afternoon', 'evening', 'night']
+    },
+    dayOfWeek: { 
+      type: Number // 0-6, Sunday-Saturday
+    },
+    weekend: { 
+      type: Boolean
+    },
+    
+    // Venue factors
+    indoorOutdoor: { 
+      type: String,
+      enum: ['indoor', 'outdoor', 'mixed', 'unknown'],
+      default: 'unknown'
+    },
+    venueSize: { 
+      type: String,
+      enum: ['intimate', 'small', 'medium', 'large', 'festival', 'unknown'],
+      default: 'unknown'
+    },
+    
+    // Event type factors
+    isFestival: { 
+      type: Boolean,
+      default: false
+    },
+    isRecurring: { 
+      type: Boolean,
+      default: false
+    }
+  },
+  
+  // Recommendation Metrics
+  recommendationMetrics: {
+    // Popularity score (0-100)
+    popularityScore: { type: Number },
+    
+    // Trending score (0-100, higher means more trending)
+    trendingScore: { type: Number },
+    
+    // Uniqueness score (0-100, higher means more unique)
+    uniquenessScore: { type: Number },
+    
+    // User interaction metrics
+    clickCount: { type: Number, default: 0 },
+    saveCount: { type: Number, default: 0 },
+    attendCount: { type: Number, default: 0 },
+    averageRating: { type: Number }
+  },
+  
+  // Promoter & Organizer
+  promoter: {
+    id: { type: String },
+    name: { type: String },
+    description: { type: String }
+  },
+  
+  // External Links & References
+  url: {
+    type: String, // Ticketmaster event URL
+  },
+  seatmap: { 
+    type: String // URL to seatmap image
+  },
+  pleaseNote: { 
+    type: String // Special notes about the event
+  },
+  
+  // Accessibility Information
+  accessibility: {
+    info: { type: String },
+    ticketLimit: { type: Number }
+  },
+  
+  // Sales Information
+  sales: {
+    public: {
+      startDateTime: { type: Date },
+      endDateTime: { type: Date },
+      startTBD: { type: Boolean }
+    },
+    presales: [{
+      name: { type: String },
+      description: { type: String },
+      startDateTime: { type: Date },
+      endDateTime: { type: Date },
+      url: { type: String }
+    }]
+  },
+  
+  // Source Tracking - Fixed to Ticketmaster for this collection
+  source: { 
+    type: String, 
+    required: true, 
+    default: "Ticketmaster",
+    index: true
+  },
+  sourceId: { 
+    type: String, 
+    required: true,
+    index: true
+  },
+  
+  // Metadata
+  createdAt: {
+    type: Date,
+    default: Date.now,
+  },
+  updatedAt: {
+    type: Date,
+    default: Date.now,
+  },
+  lastFetchedAt: {
+    type: Date,
+    default: Date.now
+  }
+});
+
+// Create a 2dsphere index on the location field for geospatial queries
+TicketmasterEventSchema.index({ location: "2dsphere" });
+
+// Create a compound index for source and sourceId for efficient upserts
+TicketmasterEventSchema.index({ source: 1, sourceId: 1 }, { unique: true });
+
+// Create additional indexes for common queries
+TicketmasterEventSchema.index({ date: 1 });
+TicketmasterEventSchema.index({ "venue.city": 1 });
+TicketmasterEventSchema.index({ genres: 1 });
+TicketmasterEventSchema.index({ "artists.name": 1 });
+TicketmasterEventSchema.index({ "genreVector.primary": 1 });
+TicketmasterEventSchema.index({ "characteristics.energy": 1, "characteristics.danceability": 1 });
+TicketmasterEventSchema.index({ "recommendationMetrics.popularityScore": 1 });
+
+// Middleware to update the `updatedAt` field on save
+TicketmasterEventSchema.pre("save", function (next) {
+  this.updatedAt = Date.now();
+  next();
+});
+
+// Export with explicit collection name for the dedicated Ticketmaster collection
+module.exports = mongoose.model("TicketmasterEvent", TicketmasterEventSchema, "events_ticketmaster");
+
