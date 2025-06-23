@@ -2,8 +2,8 @@ require("dotenv").config();
 const mongoose = require("mongoose");
 
 // Import models
-const TicketmasterEvent = require("../models/TicketmasterEvent");
-const UnifiedEvent = require("../models/UnifiedEvent");
+const TicketmasterEvent = require("./models/TicketmasterEvent");
+const UnifiedEvent = require("./models/UnifiedEvent");
 
 // Import validation and processing functions
 const { 
