@@ -162,8 +162,7 @@ async function saveUnifiedEvents(events) {
     const bulkOps = events.map(event => ({
         updateOne: {
             filter: { 
-                source: event.source, 
-                sourceId: event.sourceId 
+                              sourceId: event.sourceId 
             },
             update: { $set: event },
             upsert: true,
