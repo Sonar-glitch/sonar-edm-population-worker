@@ -295,7 +295,11 @@ const UnifiedEventSchema = new mongoose.Schema({
     required: true,
     index: true
   },
-  
+  id: {
+  type: String,
+  required: true,
+  index: true
+},
   // Unified Processing Metadata
   unifiedProcessing: {
     // When this event was processed into the unified collection
