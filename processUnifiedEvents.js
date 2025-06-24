@@ -105,7 +105,7 @@ async function processAndValidateEvents(sourceEvents) {
                         qualityScore: qualityScore,
                         isDeduplicated: false,
                         sourceEvents: [{
-                            source: event.source,
+                            source: validatedEvent.source,
                             sourceId: event.sourceId,
                             collection: event._sourceCollection
                         }]
