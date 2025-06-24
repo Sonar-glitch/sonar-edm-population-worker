@@ -342,7 +342,7 @@ function transformEvent(rawEvent) {
 async function fetchEventsPage(city, countryCode, page = 0, size = 200) {
     const params = {
         apikey: TICKETMASTER_API_KEY,
-       // classificationName: "Music",
+       classificationName: "Music",
         countryCode: countryCode,
         city: city,
         // geoPoint: geoPoint, // Using city/country instead
