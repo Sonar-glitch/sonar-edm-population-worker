@@ -92,7 +92,7 @@ async function processAndValidateEvents(sourceEvents) {
         for (const event of events) {
             try {
                 // Validate and normalize the event
-                const validatedEvent = validateAndNormalizeEvent(event);
+                const validatedEvent = validateAndNormalizeEvent(event, sourceName);
                 
                 if (validatedEvent) {
                     // Calculate quality score
