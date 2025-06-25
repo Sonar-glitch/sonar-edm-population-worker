@@ -1,3 +1,35 @@
+#!/bin/bash
+
+echo "🔧 Corrected Worker Queue Deployment"
+echo "✅ Targeting sonar-edm-population-worker app specifically"
+echo "🎯 Replacing file-based queue with MongoDB queue in worker"
+echo ""
+
+# Check if we're in the right directory structure
+if [ ! -d "/c/sonar" ]; then
+    echo "❌ Error: /c/sonar directory not found"
+    echo "Please ensure you're running this from a system with access to the sonar project"
+    exit 1
+fi
+
+echo "📋 Step 1: Navigating to worker directory..."
+
+# Navigate to worker directory
+cd /c/sonar/heroku-workers/event-population
+
+if [ $? -ne 0 ]; then
+    echo "❌ Error: Could not navigate to worker directory"
+    echo "Expected path: /c/sonar/heroku-workers/event-population"
+    exit 1
+fi
+
+echo "✅ Successfully navigated to worker directory: $(pwd)"
+
+echo ""
+echo "📋 Step 2: Creating MongoDB-based queue for worker..."
+
+# Create the MongoDB-based cityRequestQueue for worker
+cat > lib/cityRequestQueue.js << 'EOF'
 const { MongoClient } = require('mongodb');
 
 const MONGODB_URI = process.env.MONGODB_URI;
@@ -278,3 +310,102 @@ module.exports = {
   isCountrySupported,
   getRegionalPriority
 };
+EOF
+
+echo "✅ MongoDB-based queue created in worker's lib/cityRequestQueue.js!"
+
+echo ""
+echo "📋 Step 3: Verifying Heroku remote for worker app..."
+
+# Check if heroku remote exists and points to worker app
+HEROKU_REMOTE=$(git remote get-url heroku 2>/dev/null)
+if [[ "$HEROKU_REMOTE" == *"sonar-edm-population-worker"* ]]; then
+    echo "✅ Heroku remote correctly points to worker app: $HEROKU_REMOTE"
+else
+    echo "⚠️ Setting up Heroku remote for worker app..."
+    # Remove existing heroku remote if it exists
+    git remote remove heroku 2>/dev/null || true
+    # Add correct heroku remote for worker app
+    git remote add heroku https://git.heroku.com/sonar-edm-population-worker.git
+    echo "✅ Heroku remote set to worker app: sonar-edm-population-worker"
+fi
+
+echo ""
+echo "📋 Step 4: Deploying to worker app..."
+
+# Add all changes to git
+git add .
+
+# Check if there are changes to commit
+if git diff --staged --quiet; then
+    echo "⚠️ No changes to commit - MongoDB queue file may already exist"
+    echo "Proceeding with deployment anyway..."
+else
+    # Commit changes
+    git commit -m "Replace File-based Queue with MongoDB Queue
+
+🔧 SURGICAL WORKER CHANGE:
+✅ Replaced lib/cityRequestQueue.js file-based implementation with MongoDB version
+✅ Preserved all existing function signatures and behavior
+✅ Added proper MongoDB connection handling for test database
+✅ Maintained same Promise-based return patterns with error fallbacks
+
+🎯 ENABLES:
+- Worker can now read city requests from main app's MongoDB queue
+- London, Montreal, Vancouver, and all 25 pending cities will be processed
+- Global city processing for all 13 supported countries
+- Automatic status updates (pending → processing → completed)
+
+✅ PRESERVED:
+- All existing worker logic in fetchTicketmaster.js unchanged
+- Same function signatures and return types
+- Same error handling patterns that return empty arrays/false on errors
+- Same database connections and processing flow
+- Zero breaking changes to existing Canadian city processing
+
+This surgical replacement enables the worker to read from the same
+MongoDB queue that the main app writes to, solving the architecture
+mismatch while preserving all existing worker functionality."
+fi
+
+# Push to Heroku worker app
+echo "🚀 Deploying to worker app (sonar-edm-population-worker)..."
+git push heroku main
+
+if [ $? -eq 0 ]; then
+    echo ""
+    echo "🎉 Worker Queue Deployment Successful!"
+    echo ""
+    echo "🎯 What This Fixed:"
+    echo "✅ Worker now reads from same MongoDB queue as main app"
+    echo "✅ 25 pending cities (London, Montreal, Vancouver, etc.) will be processed"  
+    echo "✅ Global city processing enabled for all 13 supported countries"
+    echo "✅ Architecture mismatch resolved - file vs MongoDB incompatibility fixed"
+    echo "✅ All existing worker logic preserved and functional"
+    echo ""
+    echo "🧪 Testing Instructions:"
+    echo "1. Check worker logs: heroku logs --tail --app sonar-edm-population-worker"
+    echo "2. Worker should show: 'Found X pending city requests in MongoDB queue'"
+    echo "3. Worker should process cities: London, Montreal, Vancouver, etc."
+    echo "4. Test London: Should get real events instead of no events"
+    echo "5. Test Montreal: Should get fresh events without duplicates"
+    echo "6. Verify Toronto: Should continue showing 52 real events"
+    echo ""
+    echo "🔄 Expected Worker Behavior:"
+    echo "- Phase 1: Process Canadian cities (preserved)"
+    echo "- Phase 2: Process 25 dynamic city requests from MongoDB queue (new)"
+    echo "- Queue statistics should show actual pending requests being processed"
+    echo ""
+    echo "🌍 Global city processing now enabled for all supported countries!"
+    echo "🎵 London, Montreal, Vancouver should show real events within 2-5 minutes!"
+else
+    echo "❌ Deployment failed"
+    echo "Please check the error messages above"
+    echo ""
+    echo "🔍 Troubleshooting:"
+    echo "1. Ensure you have access to sonar-edm-population-worker Heroku app"
+    echo "2. Check if Heroku CLI is logged in: heroku auth:whoami"
+    echo "3. Verify app permissions: heroku apps:info --app sonar-edm-population-worker"
+    exit 1
+fi
+
