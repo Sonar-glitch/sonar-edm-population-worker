@@ -100,7 +100,7 @@ async function main() {
 // NEW: Process Dynamic City Requests (SAFE - with error handling)
 async function processDynamicCityRequests() {
     try {
-        const pendingRequests = getPendingCityRequests();
+        const pendingRequests = await getPendingCityRequests();
         
         if (pendingRequests.length === 0) {
             console.log("📭 No pending city requests to process");
