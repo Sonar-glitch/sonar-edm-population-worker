@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
 const axios = require("axios");
-const { connectToDatabase } = require("./lib/mongodb"); // Assuming this path is correct for worker's mongo connection
+// REMOVED: const { connectToDatabase } = require("./lib/mongodb"); // This path was incorrect for worker
 const UnifiedEvent = require("./models/UnifiedEvent");
 const { processUnifiedEvents } = require("./processUnifiedEvents");
 const { getPendingCityRequests, markCityAsProcessing, markCityAsCompleted, markCityAsError } = require("./lib/cityRequestQueue");
@@ -146,7 +146,9 @@ async function processDynamicCities() {
 
 async function main() {
     console.log("🚀 Worker Starting...");
-    await connectToDatabase();
+    // Corrected MongoDB connection for worker
+    await mongoose.connect(process.env.MONGODB_URI);
+    console.log("MongoDB Connected...");
 
     // We are focusing on the dynamic queue as it's the source of the issues.
     // If processCanadianCities is still active and uses Ticketmaster, it might need similar updates.
