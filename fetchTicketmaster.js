@@ -124,7 +124,33 @@ async function fetchEventsForCity(cityRequest) {
                 raw: event,
             }));
 
-            await mongoose.connection.db.collection("events_ticketmaster").insertMany(transformedEvents);
+            const bulkOps = transformedEvents.map(event => ({
+    updateOne: {
+        filter: { 
+            source: event.source, 
+            sourceId: event.sourceId 
+        },
+        update: { 
+            $set: {
+                ...event,
+                lastUpdated: new Date()
+            }
+        },
+        upsert: true
+    }
+}));
+
+try {
+    const bulkResult = await mongoose.connection.db.collection("events_ticketmaster").bulkWrite(bulkOps, {
+        ordered: false // Continue processing even if some operations fail
+    });
+    
+    console.log(`💾 Upserted ${transformedEvents.length} events to events_ticketmaster for ${cityRequest.city}`);
+    console.log(`📊 Inserted: ${bulkResult.insertedCount}, Modified: ${bulkResult.modifiedCount}, Upserted: ${bulkResult.upsertedCount}`);
+} catch (bulkError) {
+    console.error(`❌ Bulk upsert failed for ${cityRequest.city}:`, bulkError.message);
+    throw bulkError; // Re-throw to trigger existing error handling
+}
             console.log(`💾 Saved ${transformedEvents.length} total events to MongoDB for ${cityRequest.city}`);
 
             await processUnifiedEvents({ source: "ticketmaster" });
