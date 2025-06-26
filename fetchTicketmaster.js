@@ -9,8 +9,11 @@ const TICKETMASTER_API_KEY = process.env.TICKETMASTER_API_KEY;
 const FRONTEND_APP_URL = process.env.FRONTEND_APP_URL;
 
 // --- START FIX: Improved Rate Limiting & Cache Invalidation ---
-const RATE_LIMIT_DELAY_MS = 5000; // Increased delay to 5 seconds
-const MAX_PAGES_PER_CITY = 5;     // Safety cap: Limit to 5 pages (1000 events) per run
+const RATE_LIMIT_DELAY_MS = 10000; // INCREASED: 10 seconds between requests (was 5)
+const MAX_PAGES_PER_CITY = 3;      // REDUCED: 3 pages per city (was 5) to minimize API calls
+const MAX_RETRY_ATTEMPTS = 3;      // NEW: Maximum retry attempts per city
+const BASE_BACKOFF_MS = 60000;     // NEW: Base backoff 1 minute
+const MAX_BACKOFF_MS = 900000;     // NEW: Max backoff 15 minutes
 
 async function clearFrontendCache(city) {
     if (!FRONTEND_APP_URL) {
@@ -29,7 +32,14 @@ async function clearFrontendCache(city) {
 // --- END FIX ---
 
 async function rateLimitDelay(ms) {
+    console.log(`⏳ Waiting ${Math.round(ms/1000)} seconds before next request...`);
     return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// NEW: Calculate exponential backoff delay
+function calculateBackoffDelay(attemptNumber) {
+    const delay = Math.min(BASE_BACKOFF_MS * Math.pow(2, attemptNumber - 1), MAX_BACKOFF_MS);
+    return delay;
 }
 
 async function fetchEventsForCity(cityRequest) {
@@ -50,11 +60,12 @@ async function fetchEventsForCity(cityRequest) {
     let allRawEvents = [];
     let page = 0;
     let hasMorePages = true;
+    let retryAttempt = 0; // NEW: Track retry attempts
 
-    while (hasMorePages && page < MAX_PAGES_PER_CITY) {
+    while (hasMorePages && page < MAX_PAGES_PER_CITY && retryAttempt < MAX_RETRY_ATTEMPTS) {
         const url = `https://app.ticketmaster.com/discovery/v2/events.json?classificationName=Music&city=${encodeURIComponent(cityRequest.city )}&countryCode=${countryCode}&size=200&page=${page}&apikey=${TICKETMASTER_API_KEY}`;
         try {
-            console.log(`📄 Fetching page ${page + 1} for ${cityRequest.city}...`);
+            console.log(`📄 Fetching page ${page + 1} for ${cityRequest.city} (attempt ${retryAttempt + 1})...`);
             const response = await axios.get(url);
             const rawEvents = response.data._embedded?.events || [];
             console.log(`📥 Fetched ${rawEvents.length} raw events from Ticketmaster on page ${page + 1}`);
@@ -62,6 +73,9 @@ async function fetchEventsForCity(cityRequest) {
             if (rawEvents.length > 0) {
                 allRawEvents.push(...rawEvents);
             }
+
+            // Reset retry attempt on successful request
+            retryAttempt = 0;
 
             if (!response.data._links.next) {
                 hasMorePages = false;
@@ -71,12 +85,23 @@ async function fetchEventsForCity(cityRequest) {
             }
         } catch (error) {
             if (error.response && error.response.status === 429) {
-                console.warn(`⏳ Rate limited for ${cityRequest.city}. Backing off for 1 minute.`);
-                await rateLimitDelay(60000); // 1 minute backoff
+                retryAttempt++;
+                const backoffDelay = calculateBackoffDelay(retryAttempt);
+                
+                console.warn(`⏳ Rate limited for ${cityRequest.city} (attempt ${retryAttempt}/${MAX_RETRY_ATTEMPTS}). Backing off for ${Math.round(backoffDelay/60000)} minutes...`);
+                
+                if (retryAttempt >= MAX_RETRY_ATTEMPTS) {
+                    console.error(`❌ Max retry attempts reached for ${cityRequest.city}. Skipping this city.`);
+                    await markCityAsError(cityRequest.city, cityRequest.country, `Rate limited after ${MAX_RETRY_ATTEMPTS} attempts`);
+                    return false;
+                }
+                
+                await rateLimitDelay(backoffDelay);
+                // Don't increment page, retry the same page
             } else {
                 const errorMsg = error.response ? `${error.response.status} - ${JSON.stringify(error.response.data)}` : error.message;
                 console.error(`Error fetching from Ticketmaster for ${cityRequest.city}: ${errorMsg}`);
-                await markCityAsError(cityRequest._id, `Ticketmaster fetch failed: ${errorMsg}`);
+                await markCityAsError(cityRequest.city, cityRequest.country, `Ticketmaster fetch failed: ${errorMsg}`);
                 hasMorePages = false;
                 return false; // Indicate failure to main loop
             }
@@ -105,9 +130,11 @@ async function fetchEventsForCity(cityRequest) {
             await processUnifiedEvents({ source: "ticketmaster" });
         } catch (dbError) {
             console.error(`Error saving events to DB for ${cityRequest.city}:`, dbError.message);
-            await markCityAsError(cityRequest._id, `DB save failed: ${dbError.message}`);
+            await markCityAsError(cityRequest.city, cityRequest.country, `DB save failed: ${dbError.message}`);
             return false;
         }
+    } else {
+        console.log(`ℹ️ No events found for ${cityRequest.city} after ${retryAttempt} retry attempts.`);
     }
 
     console.log(`✅ Finished processing ${cityRequest.city}: ${allRawEvents.length} total events fetched.`);
@@ -127,25 +154,37 @@ async function processDynamicCities() {
     console.log(`Found ${pendingCities.length} pending cities in the queue.`);
 
     for (const city of pendingCities) {
-        console.log(`--- Processing: ${city.city}, ${city.country} ---`);
-        await markCityAsProcessing(city._id);
+        console.log(`\n--- Processing: ${city.city}, ${city.country} ---`);
+        
+        // SURGICAL FIX #1: Pass city.city and city.country instead of city._id
+        await markCityAsProcessing(city.city, city.country);
 
         const success = await fetchEventsForCity(city);
 
         if (success) {
-            await markCityAsCompleted(city._id);
+            // SURGICAL FIX #2: Pass city.city and city.country instead of city._id
+            await markCityAsCompleted(city.city, city.country);
+            console.log(`✅ Successfully completed ${city.city}, ${city.country}`);
         } else {
             // If fetchEventsForCity returned false (failed), it already marked as error
-            console.log(`--- Failed to process ${city.city}, ${city.country} ---`);
+            console.log(`❌ Failed to process ${city.city}, ${city.country}`);
         }
 
         // --- RELOCATED CACHE INVALIDATION (Always runs after city processing attempt) ---
         await clearFrontendCache(city.city);
+        
+        // NEW: Add delay between cities to be respectful to the API
+        if (pendingCities.indexOf(city) < pendingCities.length - 1) {
+            console.log(`⏳ Waiting 30 seconds before processing next city...`);
+            await rateLimitDelay(30000);
+        }
     }
 }
 
 async function main() {
     console.log("🚀 Worker Starting...");
+    console.log(`📊 Configuration: ${RATE_LIMIT_DELAY_MS/1000}s between requests, max ${MAX_PAGES_PER_CITY} pages per city, max ${MAX_RETRY_ATTEMPTS} retries`);
+    
     // Corrected MongoDB connection for worker
     await mongoose.connect(process.env.MONGODB_URI);
     console.log("MongoDB Connected...");
@@ -165,3 +204,4 @@ main().catch(err => {
     console.error("A critical error occurred in the main worker process:", err);
     process.exit(1);
 });
+
