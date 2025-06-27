@@ -6,9 +6,6 @@ const TicketmasterEvent = require("./models/TicketmasterEvent");
 const UnifiedEvent = require("./models/UnifiedEvent");
 
 // Import validation and processing functions
-
-// SURGICAL ADDITION: OCR Enhancement
-const { enhanceEventsWithOCR } = require("./lib/ocrUtils");
 const { 
   validateAndNormalizeEvent, 
   mergeAndDeduplicateEvents, 
@@ -128,65 +125,6 @@ async function processAndValidateEvents(sourceEvents) {
     }
     
     console.log(`📊 Total processed: ${totalProcessed}, Total valid: ${totalValid}`);
-
-        // SURGICAL ADDITION: OCR Enhancement Phase
-        if (process.env.OCR_ENABLED === 'true') {
-            console.log(`🖼️ === OCR ENHANCEMENT PHASE ===`);
-            console.log(`📊 Processing OCR for ${validatedEvents.length} validated events`);
-            
-            try {
-                // Filter events that need OCR processing
-                const eventsNeedingOCR = validatedEvents.filter(event => {
-                    const hasNoArtists = !event.artists || event.artists.length === 0;
-                    const hasNoArtistList = !event.artistList || event.artistList.length === 0;
-                    const hasImages = event.images && event.images.length > 0;
-                    return (hasNoArtists || hasNoArtistList) && hasImages;
-                });
-                
-                console.log(`🎯 Found ${eventsNeedingOCR.length} events needing OCR out of ${validatedEvents.length} total`);
-                
-                if (eventsNeedingOCR.length > 0) {
-                    // Limit OCR processing to prevent timeout (max 10 events per run)
-                    const eventsToProcess = eventsNeedingOCR.slice(0, 10);
-                    console.log(`🖼️ Processing OCR for ${eventsToProcess.length} events (limited for performance)`);
-                    
-                    // Set timeout for OCR processing (5 minutes max)
-                    const ocrPromise = enhanceEventsWithOCR(eventsToProcess);
-                    const timeoutPromise = new Promise((_, reject) => 
-                        setTimeout(() => reject(new Error('OCR processing timeout')), 300000)
-                    );
-                    
-                    const enhancedOCREvents = await Promise.race([ocrPromise, timeoutPromise]);
-                    
-                    // Merge enhanced events back into the full list
-                    const enhancedEventMap = new Map();
-                    enhancedOCREvents.forEach(event => {
-                        enhancedEventMap.set(event.sourceId, event);
-                    });
-                    
-                    // Replace events with enhanced versions
-                    for (let i = 0; i < validatedEvents.length; i++) {
-                        const enhanced = enhancedEventMap.get(validatedEvents[i].sourceId);
-                        if (enhanced) {
-                            validatedEvents[i] = enhanced;
-                        }
-                    }
-                    
-                    const successfulOCR = enhancedOCREvents.filter(e => e.ocrProcessed && e.ocrResults?.artists?.length > 0).length;
-                    console.log(`✅ OCR Enhancement completed: ${successfulOCR}/${eventsToProcess.length} events successfully enhanced with artist data`);
-                    
-                } else {
-                    console.log(`⏭️ No events need OCR processing in this batch`);
-                }
-                
-            } catch (ocrError) {
-                console.error(`⚠️ OCR processing failed:`, ocrError.message);
-                console.log(`📋 Continuing with events without OCR enhancement...`);
-                // Continue with original events if OCR fails - non-breaking
-            }
-        } else {
-            console.log(`⏭️ OCR processing disabled (OCR_ENABLED != 'true')`);
-        }
     return allEvents;
 }
 

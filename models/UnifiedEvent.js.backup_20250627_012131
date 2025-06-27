@@ -332,49 +332,6 @@ const UnifiedEventSchema = new mongoose.Schema({
   },
   
   // Metadata
-
-  // SURGICAL ADDITION: OCR Enhancement Fields
-  ocrProcessed: {
-    type: Boolean,
-    default: false,
-    index: true
-  },
-  
-  ocrSkipped: {
-    type: Boolean,
-    default: false
-  },
-  
-  ocrResults: {
-    artists: [{ type: String }],
-    confidence: { 
-      type: Number, 
-      min: 0, 
-      max: 1 
-    },
-    processingTime: { 
-      type: Number 
-    },
-    imageUrl: { 
-      type: String 
-    },
-    processedAt: { 
-      type: Date, 
-      default: Date.now 
-    }
-  },
-  
-  ocrError: {
-    type: String
-  },
-  
-  ocrAttemptedAt: {
-    type: Date
-  },
-  
-  ocrReason: {
-    type: String
-  },
   createdAt: {
     type: Date,
     default: Date.now,
@@ -402,11 +359,6 @@ UnifiedEventSchema.index({ genres: 1 });
 UnifiedEventSchema.index({ "artists.name": 1 });
 UnifiedEventSchema.index({ "genreVector.primary": 1 });
 UnifiedEventSchema.index({ "characteristics.energy": 1, "characteristics.danceability": 1 });
-
-// SURGICAL ADDITION: OCR processing indexes
-UnifiedEventSchema.index({ ocrProcessed: 1 });
-UnifiedEventSchema.index({ ocrSkipped: 1 });
-UnifiedEventSchema.index({ ocrProcessed: 1, ocrSkipped: 1 });
 UnifiedEventSchema.index({ "recommendationMetrics.popularityScore": 1 });
 
 // Unified processing specific indexes
