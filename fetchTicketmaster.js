@@ -111,18 +111,42 @@ async function fetchEventsForCity(cityRequest) {
     if (allRawEvents.length > 0) {
         try {
             const transformedEvents = allRawEvents.map(event => ({
-                source: "ticketmaster",
-                sourceId: event.id,
-                name: event.name,
-                url: event.url,
-                images: event.images,
-                genre: event.classifications?.[0]?.genre?.name,
-                subGenre: event.classifications?.[0]?.subGenre?.name,
-                saleStartDate: event.sales?.public?.startDateTime,
-                saleEndDate: event.sales?.public?.endDateTime,
-                status: event.dates?.status?.code,
-                raw: event,
-            }));
+    source: "ticketmaster",
+    sourceId: event.id,
+    name: event.name,
+    url: event.url,
+    images: event.images,
+    genre: event.classifications?.[0]?.genre?.name,
+    subGenre: event.classifications?.[0]?.subGenre?.name,
+    saleStartDate: event.sales?.public?.startDateTime,
+    saleEndDate: event.sales?.public?.endDateTime,
+    status: event.dates?.status?.code,
+    raw: event,
+    
+    // SURGICAL ADDITION: Extract venue data for geographic filtering
+    venue: {
+        name: event._embedded?.venues?.[0]?.name || null,
+        address: event._embedded?.venues?.[0]?.address?.line1 || null,
+        city: event._embedded?.venues?.[0]?.city?.name || null,
+        state: event._embedded?.venues?.[0]?.state?.name || null,
+        country: event._embedded?.venues?.[0]?.country?.name || null,
+        postalCode: event._embedded?.venues?.[0]?.postalCode || null
+    },
+    
+    // Extract date/time for proper sorting
+    date: event.dates?.start?.localDate ? new Date(event.dates.start.localDate) : null,
+    startTime: event.dates?.start?.localTime || null,
+    
+    // Create location field for MongoDB geospatial queries (if coordinates available)
+    location: event._embedded?.venues?.[0]?.location ? {
+        type: "Point",
+        coordinates: [
+            parseFloat(event._embedded.venues[0].location.longitude), 
+            parseFloat(event._embedded.venues[0].location.latitude)
+        ]
+    } : null
+}));
+
 
             const bulkOps = transformedEvents.map(event => ({
     updateOne: {
