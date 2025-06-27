@@ -132,18 +132,18 @@ async function processAndValidateEvents(sourceEvents) {
         // SURGICAL ADDITION: OCR Enhancement Phase
         if (process.env.OCR_ENABLED === 'true') {
             console.log(`🖼️ === OCR ENHANCEMENT PHASE ===`);
-            console.log(`📊 Processing OCR for ${validatedEvents.length} validated events`);
+            console.log(`📊 Processing OCR for ${allEvents.length} validated events`);
             
             try {
                 // Filter events that need OCR processing
-                const eventsNeedingOCR = validatedEvents.filter(event => {
+                const eventsNeedingOCR = allEvents.filter(event => {
                     const hasNoArtists = !event.artists || event.artists.length === 0;
                     const hasNoArtistList = !event.artistList || event.artistList.length === 0;
                     const hasImages = event.images && event.images.length > 0;
                     return (hasNoArtists || hasNoArtistList) && hasImages;
                 });
                 
-                console.log(`🎯 Found ${eventsNeedingOCR.length} events needing OCR out of ${validatedEvents.length} total`);
+                console.log(`🎯 Found ${eventsNeedingOCR.length} events needing OCR out of ${allEvents.length} total`);
                 
                 if (eventsNeedingOCR.length > 0) {
                     // Limit OCR processing to prevent timeout (max 10 events per run)
@@ -165,10 +165,10 @@ async function processAndValidateEvents(sourceEvents) {
                     });
                     
                     // Replace events with enhanced versions
-                    for (let i = 0; i < validatedEvents.length; i++) {
-                        const enhanced = enhancedEventMap.get(validatedEvents[i].sourceId);
+                    for (let i = 0; i < allEvents.length; i++) {
+                        const enhanced = enhancedEventMap.get(allEvents[i].sourceId);
                         if (enhanced) {
-                            validatedEvents[i] = enhanced;
+                            allEvents[i] = enhanced;
                         }
                     }
                     
@@ -317,13 +317,13 @@ async function processUnifiedEvents() {
         const sourceEvents = await fetchSourceEvents();
         
         // Step 2: Process and validate events
-        const validatedEvents = await processAndValidateEvents(sourceEvents);
+        const allEvents = await processAndValidateEvents(sourceEvents);
         stats.totalProcessed = Object.values(sourceEvents).reduce((sum, events) => sum + events.length, 0);
-        stats.totalValid = validatedEvents.length;
+        stats.totalValid = allEvents.length;
         
         // Step 3: Deduplicate events across sources
-        const deduplicatedEvents = await deduplicateEvents(validatedEvents);
-        stats.duplicatesRemoved = validatedEvents.length - deduplicatedEvents.length;
+        const deduplicatedEvents = await deduplicateEvents(allEvents);
+        stats.duplicatesRemoved = allEvents.length - deduplicatedEvents.length;
         
         // Step 4: Save to unified collection
         const saveResult = await saveUnifiedEvents(deduplicatedEvents);
