@@ -386,30 +386,24 @@ const UnifiedEventSchema = new mongoose.Schema({
   lastFetchedAt: {
     type: Date,
     default: Date.now
-  }
+  },
 
   // SURGICAL ADDITION: Recommendation Enhancement Fields
-  
-  // Enhanced artist data
   artists: [{ type: String }],
   artistExtraction: {
-    method: { type: String, enum: ['enhanced', 'ticketmaster', 'name_parsing', 'none'], default: 'none' },
+    method: { type: String, enum: ["enhanced", "ticketmaster", "name_parsing", "none"], default: "none" },
     confidence: { type: Number, min: 0, max: 100, default: 0 },
     extractedAt: { type: Date }
   },
-  
-  // Enhanced genre data
   genres: [{ type: String }],
-  primaryGenre: { type: String, default: 'unknown' },
+  primaryGenre: { type: String, default: "unknown" },
   isEdmEvent: { type: Boolean, default: false },
   edmConfidence: { type: Number, min: 0, max: 100, default: 0 },
   genreDetection: {
-    method: { type: String, enum: ['enhanced', 'ticketmaster', 'artist_based', 'none'], default: 'none' },
+    method: { type: String, enum: ["enhanced", "ticketmaster", "artist_based", "none"], default: "none" },
     confidence: { type: Number, min: 0, max: 100, default: 0 },
     detectedAt: { type: Date }
   },
-  
-  // Recommendation scoring
   recommendationMetrics: {
     tasteScore: { type: Number, min: 0, max: 100, default: 0 },
     scoreBreakdown: {
@@ -419,17 +413,15 @@ const UnifiedEventSchema = new mongoose.Schema({
     },
     confidence: { type: Number, min: 0, max: 100, default: 0 },
     calculatedAt: { type: Date },
-    version: { type: String, default: '1.0' }
+    version: { type: String, default: "1.0" }
   },
-  
-  // Enhancement metadata
   enhancementProcessed: { type: Boolean, default: false },
   enhancementMetadata: {
     processedAt: { type: Date },
     version: { type: String },
     stages: [{ type: String }]
   },
-  enhancementSkipped: { type: Boolean, default: false },
+  enhancementSkipped: { type: Boolean, default: false }
 });
 
 // Create a 2dsphere index on the location field for geospatial queries
@@ -460,49 +452,6 @@ UnifiedEventSchema.index({ "unifiedProcessing.qualityScore": 1 });
 UnifiedEventSchema.pre("save", function (next) {
   this.updatedAt = Date.now();
   next();
-
-  // SURGICAL ADDITION: Recommendation Enhancement Fields
-  
-  // Enhanced artist data
-  artists: [{ type: String }],
-  artistExtraction: {
-    method: { type: String, enum: ['enhanced', 'ticketmaster', 'name_parsing', 'none'], default: 'none' },
-    confidence: { type: Number, min: 0, max: 100, default: 0 },
-    extractedAt: { type: Date }
-  },
-  
-  // Enhanced genre data
-  genres: [{ type: String }],
-  primaryGenre: { type: String, default: 'unknown' },
-  isEdmEvent: { type: Boolean, default: false },
-  edmConfidence: { type: Number, min: 0, max: 100, default: 0 },
-  genreDetection: {
-    method: { type: String, enum: ['enhanced', 'ticketmaster', 'artist_based', 'none'], default: 'none' },
-    confidence: { type: Number, min: 0, max: 100, default: 0 },
-    detectedAt: { type: Date }
-  },
-  
-  // Recommendation scoring
-  recommendationMetrics: {
-    tasteScore: { type: Number, min: 0, max: 100, default: 0 },
-    scoreBreakdown: {
-      genre: { score: Number, details: String },
-      artist: { score: Number, details: String },
-      venue: { score: Number, details: String }
-    },
-    confidence: { type: Number, min: 0, max: 100, default: 0 },
-    calculatedAt: { type: Date },
-    version: { type: String, default: '1.0' }
-  },
-  
-  // Enhancement metadata
-  enhancementProcessed: { type: Boolean, default: false },
-  enhancementMetadata: {
-    processedAt: { type: Date },
-    version: { type: String },
-    stages: [{ type: String }]
-  },
-  enhancementSkipped: { type: Boolean, default: false },
 });
 
 // Export with explicit collection name for the unified collection
