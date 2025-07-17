@@ -333,9 +333,10 @@ async function processUnifiedEvents() {
             const eventsNeedingEnhancement = allEvents.filter(event => enhancer.needsEnhancement(event));
             console.log(`🎯 Found ${eventsNeedingEnhancement.length} events needing enhancement out of ${allEvents.length} total`);
             
-            const batchSize = parseInt(process.env.ENHANCEMENT_BATCH_SIZE) || 50;
+            // FIXED: Increased batch size from 50 to 10000 to process all events with Phase 1 metadata
+            const batchSize = parseInt(process.env.ENHANCEMENT_BATCH_SIZE) || 10000;
             const eventsToProcess = eventsNeedingEnhancement.slice(0, batchSize);
-            console.log(`🎯 Processing enhancement for ${eventsToProcess.length} events (limited for performance)`);
+            console.log(`🎯 Processing enhancement for ${eventsToProcess.length} events (batch size: ${batchSize})`);
             
             let enhancementSuccessCount = 0;
             for (const event of eventsToProcess) {
