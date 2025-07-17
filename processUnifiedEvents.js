@@ -1,4 +1,3 @@
-const { RecommendationEnhancer } = require("./lib/recommendationEnhancer");
 require("dotenv").config();
 const mongoose = require("mongoose");
 
@@ -15,6 +14,9 @@ const {
   mergeAndDeduplicateEvents, 
   calculateCompletenessScore 
 } = require("./lib/eventValidation");
+
+// FIX: Add missing RecommendationEnhancer import
+const { RecommendationEnhancer } = require("./lib/recommendationEnhancer");
 
 const MONGODB_URI = process.env.MONGODB_URI;
 
