@@ -241,7 +241,18 @@ const UnifiedEventSchema = new mongoose.Schema({
     clickCount: { type: Number, default: 0 },
     saveCount: { type: Number, default: 0 },
     attendCount: { type: Number, default: 0 },
-    averageRating: { type: Number }
+    averageRating: { type: Number },
+    
+    // SURGICAL ADDITION: Enhanced recommendation fields
+    tasteScore: { type: Number, min: 0, max: 100, default: 0 },
+    scoreBreakdown: {
+      genre: { score: Number, details: String },
+      artist: { score: Number, details: String },
+      venue: { score: Number, details: String }
+    },
+    confidence: { type: Number, min: 0, max: 100, default: 0 },
+    calculatedAt: { type: Date },
+    version: { type: String, default: "1.0" }
   },
   
   // Promoter & Organizer
@@ -296,10 +307,11 @@ const UnifiedEventSchema = new mongoose.Schema({
     index: true
   },
   id: {
-  type: String,
-  required: true,
-  index: true
-},
+    type: String,
+    required: true,
+    index: true
+  },
+  
   // Unified Processing Metadata
   unifiedProcessing: {
     // When this event was processed into the unified collection
@@ -331,8 +343,6 @@ const UnifiedEventSchema = new mongoose.Schema({
     }]
   },
   
-  // Metadata
-
   // SURGICAL ADDITION: OCR Enhancement Fields
   ocrProcessed: {
     type: Boolean,
@@ -375,6 +385,8 @@ const UnifiedEventSchema = new mongoose.Schema({
   ocrReason: {
     type: String
   },
+  
+  // Metadata
   createdAt: {
     type: Date,
     default: Date.now,
@@ -389,13 +401,11 @@ const UnifiedEventSchema = new mongoose.Schema({
   },
 
   // SURGICAL ADDITION: Recommendation Enhancement Fields
-  artists: [{ type: String }],
   artistExtraction: {
     method: { type: String, enum: ["enhanced", "ticketmaster", "name_parsing", "none"], default: "none" },
     confidence: { type: Number, min: 0, max: 100, default: 0 },
     extractedAt: { type: Date }
   },
-  genres: [{ type: String }],
   primaryGenre: { type: String, default: "unknown" },
   isEdmEvent: { type: Boolean, default: false },
   edmConfidence: { type: Number, min: 0, max: 100, default: 0 },
@@ -403,17 +413,6 @@ const UnifiedEventSchema = new mongoose.Schema({
     method: { type: String, enum: ["enhanced", "ticketmaster", "artist_based", "none"], default: "none" },
     confidence: { type: Number, min: 0, max: 100, default: 0 },
     detectedAt: { type: Date }
-  },
-  recommendationMetrics: {
-    tasteScore: { type: Number, min: 0, max: 100, default: 0 },
-    scoreBreakdown: {
-      genre: { score: Number, details: String },
-      artist: { score: Number, details: String },
-      venue: { score: Number, details: String }
-    },
-    confidence: { type: Number, min: 0, max: 100, default: 0 },
-    calculatedAt: { type: Date },
-    version: { type: String, default: "1.0" }
   },
   enhancementProcessed: { type: Boolean, default: false },
   enhancementMetadata: {
