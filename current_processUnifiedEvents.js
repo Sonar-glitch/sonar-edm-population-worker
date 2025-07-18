@@ -6,11 +6,17 @@ const TicketmasterEvent = require("./models/TicketmasterEvent");
 const UnifiedEvent = require("./models/UnifiedEvent");
 
 // Import validation and processing functions
+
+// SURGICAL ADDITION: OCR Enhancement
+const { enhanceEventsWithOCR } = require("./lib/ocrUtils");
 const { 
   validateAndNormalizeEvent, 
   mergeAndDeduplicateEvents, 
   calculateCompletenessScore 
 } = require("./lib/eventValidation");
+
+// FIX: Add missing RecommendationEnhancer import
+const { RecommendationEnhancer } = require("./lib/recommendationEnhancer");
 
 const MONGODB_URI = process.env.MONGODB_URI;
 
@@ -125,6 +131,65 @@ async function processAndValidateEvents(sourceEvents) {
     }
     
     console.log(`📊 Total processed: ${totalProcessed}, Total valid: ${totalValid}`);
+
+        // SURGICAL ADDITION: OCR Enhancement Phase
+        if (process.env.OCR_ENABLED === 'true') {
+            console.log(`🖼️ === OCR ENHANCEMENT PHASE ===`);
+            console.log(`📊 Processing OCR for ${allEvents.length} validated events`);
+            
+            try {
+                // Filter events that need OCR processing
+                const eventsNeedingOCR = allEvents.filter(event => {
+                    const hasNoArtists = !event.artists || event.artists.length === 0;
+                    const hasNoArtistList = !event.artistList || event.artistList.length === 0;
+                    const hasImages = event.images && event.images.length > 0;
+                    return (hasNoArtists || hasNoArtistList) && hasImages;
+                });
+                
+                console.log(`🎯 Found ${eventsNeedingOCR.length} events needing OCR out of ${allEvents.length} total`);
+                
+                if (eventsNeedingOCR.length > 0) {
+                    // Limit OCR processing to prevent timeout (max 10 events per run)
+                    const eventsToProcess = eventsNeedingOCR.slice(0, 10);
+                    console.log(`🖼️ Processing OCR for ${eventsToProcess.length} events (limited for performance)`);
+                    
+                    // Set timeout for OCR processing (5 minutes max)
+                    const ocrPromise = enhanceEventsWithOCR(eventsToProcess);
+                    const timeoutPromise = new Promise((_, reject) => 
+                        setTimeout(() => reject(new Error('OCR processing timeout')), 300000)
+                    );
+                    
+                    const enhancedOCREvents = await Promise.race([ocrPromise, timeoutPromise]);
+                    
+                    // Merge enhanced events back into the full list
+                    const enhancedEventMap = new Map();
+                    enhancedOCREvents.forEach(event => {
+                        enhancedEventMap.set(event.sourceId, event);
+                    });
+                    
+                    // Replace events with enhanced versions
+                    for (let i = 0; i < allEvents.length; i++) {
+                        const enhanced = enhancedEventMap.get(allEvents[i].sourceId);
+                        if (enhanced) {
+                            allEvents[i] = enhanced;
+                        }
+                    }
+                    
+                    const successfulOCR = enhancedOCREvents.filter(e => e.ocrProcessed && e.ocrResults?.artists?.length > 0).length;
+                    console.log(`✅ OCR Enhancement completed: ${successfulOCR}/${eventsToProcess.length} events successfully enhanced with artist data`);
+                    
+                } else {
+                    console.log(`⏭️ No events need OCR processing in this batch`);
+                }
+                
+            } catch (ocrError) {
+                console.error(`⚠️ OCR processing failed:`, ocrError.message);
+                console.log(`📋 Continuing with events without OCR enhancement...`);
+                // Continue with original events if OCR fails - non-breaking
+            }
+        } else {
+            console.log(`⏭️ OCR processing disabled (OCR_ENABLED != 'true')`);
+        }
     return allEvents;
 }
 
@@ -255,13 +320,46 @@ async function processUnifiedEvents() {
         const sourceEvents = await fetchSourceEvents();
         
         // Step 2: Process and validate events
-        const validatedEvents = await processAndValidateEvents(sourceEvents);
+        const allEvents = await processAndValidateEvents(sourceEvents);
         stats.totalProcessed = Object.values(sourceEvents).reduce((sum, events) => sum + events.length, 0);
-        stats.totalValid = validatedEvents.length;
+        stats.totalValid = allEvents.length;
         
+        // Step 2.5: RECOMMENDATION ENHANCEMENT PHASE
+        console.log("🎯 === RECOMMENDATION ENHANCEMENT PHASE ===");
+        const enhancer = new RecommendationEnhancer();
+        
+        if (enhancer.enabled) {
+            console.log(`📊 Processing enhancement for ${allEvents.length} validated events`);
+            const eventsNeedingEnhancement = allEvents.filter(event => enhancer.needsEnhancement(event));
+            console.log(`🎯 Found ${eventsNeedingEnhancement.length} events needing enhancement out of ${allEvents.length} total`);
+            
+            const batchSize = parseInt(process.env.ENHANCEMENT_BATCH_SIZE) || 50;
+            const eventsToProcess = eventsNeedingEnhancement.slice(0, batchSize);
+            console.log(`🎯 Processing enhancement for ${eventsToProcess.length} events (limited for performance)`);
+            
+            let enhancementSuccessCount = 0;
+            for (const event of eventsToProcess) {
+                try {
+                    const enhanced = await enhancer.enhanceEvent(event);
+                    if (enhanced.enhancementProcessed) {
+                        enhancementSuccessCount++;
+                        const eventIndex = allEvents.findIndex(e => e._id?.toString() === event._id?.toString() || e.sourceId === event.sourceId);
+                        if (eventIndex !== -1) {
+                            allEvents[eventIndex] = enhanced;
+                        }
+                    }
+                } catch (error) {
+                    console.warn(`⚠️ Enhancement failed for event ${event.name}:`, error.message);
+                }
+            }
+            
+            console.log(`✅ Recommendation Enhancement completed: ${enhancementSuccessCount}/${eventsToProcess.length} events successfully enhanced`);
+        } else {
+            console.log("⏸️ Recommendation Enhancement disabled (RECOMMENDATION_ENHANCEMENT_ENABLED=false)");
+        }
         // Step 3: Deduplicate events across sources
-        const deduplicatedEvents = await deduplicateEvents(validatedEvents);
-        stats.duplicatesRemoved = validatedEvents.length - deduplicatedEvents.length;
+        const deduplicatedEvents = await deduplicateEvents(allEvents);
+        stats.duplicatesRemoved = allEvents.length - deduplicatedEvents.length;
         
         // Step 4: Save to unified collection
         const saveResult = await saveUnifiedEvents(deduplicatedEvents);

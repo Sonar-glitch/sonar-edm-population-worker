@@ -18,7 +18,7 @@ const UnifiedEventSchema = new mongoose.Schema({
     enum: ['active', 'cancelled', 'postponed', 'rescheduled'],
     default: 'active'
   },
-  
+
   // Temporal Information
   date: {
     type: Date,
@@ -33,7 +33,7 @@ const UnifiedEventSchema = new mongoose.Schema({
   doorTime: {
     type: String,
   },
-  
+
   // Location Information
   venue: {
     name: { type: String },
@@ -58,7 +58,7 @@ const UnifiedEventSchema = new mongoose.Schema({
       required: true,
     },
   },
-  
+
   // Visual Assets
   images: [{
     url: { type: String },
@@ -67,31 +67,31 @@ const UnifiedEventSchema = new mongoose.Schema({
     height: { type: Number },
     fallback: { type: Boolean }
   }],
-  primaryImage: { 
+  primaryImage: {
     type: String // URL to primary image for quick access
   },
   image: {
     type: String, // Legacy field for backward compatibility
   },
-  
+
   // Pricing Information
   priceRange: {
     min: { type: Number },
     max: { type: Number },
     currency: { type: String }
   },
-  price: { 
+  price: {
     type: String // Formatted price string for frontend display
   },
-  ticketLimit: { 
-    type: String 
+  ticketLimit: {
+    type: String
   },
-  
+
   // Enhanced Classification & Categorization
-  genres: [{ 
-    type: String 
+  genres: [{
+    type: String
   }], // Flattened array of all genres for easy filtering
-  
+
   // Enhanced genre representation for ML matching
   genreVector: {
     // Primary genres with confidence scores (0-100)
@@ -109,7 +109,7 @@ const UnifiedEventSchema = new mongoose.Schema({
       type: Number
     }
   },
-  
+
   classifications: [{
     primary: { type: Boolean },
     segment: {
@@ -133,7 +133,7 @@ const UnifiedEventSchema = new mongoose.Schema({
       name: { type: String }
     }
   }],
-  
+
   // Enhanced Artists & Performers
   artists: [{
     name: { type: String },
@@ -148,10 +148,10 @@ const UnifiedEventSchema = new mongoose.Schema({
     monthlyListeners: { type: Number },
     followerCount: { type: Number }
   }],
-  artistList: [{ 
-    type: String 
+  artistList: [{
+    type: String
   }], // Flattened array of artist names for frontend
-  
+
   // Enhanced Sound Characteristics (for matching with user profiles)
   characteristics: {
     // Core characteristics (0-100 scale)
@@ -160,27 +160,27 @@ const UnifiedEventSchema = new mongoose.Schema({
     energy: { type: Number },
     tempo: { type: Number },
     obscurity: { type: Number },
-    
+
     // Additional characteristics (0-100 scale)
     acousticness: { type: Number },
     instrumentalness: { type: Number },
     liveness: { type: Number },
     valence: { type: Number },
-    
+
     // Sound DNA (dimensionality-reduced representation)
     soundDNA: [{ type: Number }],
-    
+
     // Confidence score for characteristics (0-100)
     confidenceScore: { type: Number },
-    
+
     // Source of characteristics (artist-derived, genre-derived, or direct)
-    characteristicsSource: { 
+    characteristicsSource: {
       type: String,
       enum: ['artist', 'genre', 'direct'],
       default: 'genre'
     }
   },
-  
+
   // Contextual Factors (for contextual matching)
   contextualFactors: {
     // Seasonal positioning (0-100 scores)
@@ -190,59 +190,59 @@ const UnifiedEventSchema = new mongoose.Schema({
       fall: { type: Number },
       winter: { type: Number }
     },
-    
+
     // Time factors
-    timeOfDay: { 
+    timeOfDay: {
       type: String,
       enum: ['morning', 'afternoon', 'evening', 'night']
     },
-    dayOfWeek: { 
+    dayOfWeek: {
       type: Number // 0-6, Sunday-Saturday
     },
-    weekend: { 
+    weekend: {
       type: Boolean
     },
-    
+
     // Venue factors
-    indoorOutdoor: { 
+    indoorOutdoor: {
       type: String,
       enum: ['indoor', 'outdoor', 'mixed', 'unknown'],
       default: 'unknown'
     },
-    venueSize: { 
+    venueSize: {
       type: String,
       enum: ['intimate', 'small', 'medium', 'large', 'festival', 'unknown'],
       default: 'unknown'
     },
-    
+
     // Event type factors
-    isFestival: { 
+    isFestival: {
       type: Boolean,
       default: false
     },
-    isRecurring: { 
+    isRecurring: {
       type: Boolean,
       default: false
     }
   },
-  
+
   // Recommendation Metrics
   recommendationMetrics: {
     // Popularity score (0-100)
     popularityScore: { type: Number },
-    
+
     // Trending score (0-100, higher means more trending)
     trendingScore: { type: Number },
-    
+
     // Uniqueness score (0-100, higher means more unique)
     uniquenessScore: { type: Number },
-    
+
     // User interaction metrics
     clickCount: { type: Number, default: 0 },
     saveCount: { type: Number, default: 0 },
     attendCount: { type: Number, default: 0 },
     averageRating: { type: Number },
-    
+
     // SURGICAL ADDITION: Enhanced recommendation fields
     tasteScore: { type: Number, min: 0, max: 100, default: 0 },
     scoreBreakdown: {
@@ -254,31 +254,31 @@ const UnifiedEventSchema = new mongoose.Schema({
     calculatedAt: { type: Date },
     version: { type: String, default: "1.0" }
   },
-  
+
   // Promoter & Organizer
   promoter: {
     id: { type: String },
     name: { type: String },
     description: { type: String }
   },
-  
+
   // External Links & References
   url: {
     type: String, // Event URL
   },
-  seatmap: { 
+  seatmap: {
     type: String // URL to seatmap image
   },
-  pleaseNote: { 
+  pleaseNote: {
     type: String // Special notes about the event
   },
-  
+
   // Accessibility Information
   accessibility: {
     info: { type: String },
     ticketLimit: { type: Number }
   },
-  
+
   // Sales Information
   sales: {
     public: {
@@ -294,15 +294,15 @@ const UnifiedEventSchema = new mongoose.Schema({
       url: { type: String }
     }]
   },
-  
+
   // Source Tracking - Can be from any source after processing
-  source: { 
-    type: String, 
+  source: {
+    type: String,
     required: true,
     index: true
   },
-  sourceId: { 
-    type: String, 
+  sourceId: {
+    type: String,
     required: true,
     index: true
   },
@@ -315,7 +315,7 @@ const UnifiedEventSchema = new mongoose.Schema({
     required: true,
     index: true
   },
-  
+
   // Unified Processing Metadata
   unifiedProcessing: {
     // When this event was processed into the unified collection
@@ -343,85 +343,52 @@ const UnifiedEventSchema = new mongoose.Schema({
     sourceEvents: [{
       source: { type: String },
       sourceId: { type: String },
-  sourceCollection: {
-    type: String,
-    index: true
-  },
+      sourceCollection: { type: String },
       collection: { type: String }
     }]
   },
-  sourceCollection: {
-    type: String,
-    index: true
-  },
-  
+
   // SURGICAL ADDITION: OCR Enhancement Fields
   ocrProcessed: {
     type: Boolean,
     default: false,
     index: true
   },
-  
+
   ocrSkipped: {
     type: Boolean,
     default: false
   },
-  
+
   ocrResults: {
     artists: [{ type: String }],
-    confidence: { 
-      type: Number, 
-      min: 0, 
-      max: 1 
+    confidence: {
+      type: Number,
+      min: 0,
+      max: 1
     },
-    processingTime: { 
-      type: Number 
+    processingTime: {
+      type: Number
     },
-    imageUrl: { 
-      type: String 
+    imageUrl: {
+      type: String
     },
-    processedAt: { 
-      type: Date, 
-      default: Date.now 
+    processedAt: {
+      type: Date,
+      default: Date.now
     }
   },
-  
+
   ocrError: {
     type: String
   },
-  
+
   ocrAttemptedAt: {
     type: Date
   },
-  
+
   ocrReason: {
     type: String
-  },
-  
-  // PHASE 1 ENHANCEMENT: Sound Characteristics
-  soundCharacteristics: {
-    energy: { type: Number, min: 0, max: 100 },
-    danceability: { type: Number, min: 0, max: 100 },
-    valence: { type: Number, min: 0, max: 100 },
-    tempo: { type: Number },
-    confidence: { type: String, enum: ['high', 'medium', 'low'] },
-    source: { type: String }
-  },
-
-  // PHASE 1 ENHANCEMENT: Artist Metadata
-  artistMetadata: {
-    popularity: { type: Number, min: 0, max: 100 },
-    edmWeight: { type: Number, min: 0, max: 1 },
-    confidence: { type: String, enum: ['high', 'medium', 'low'] },
-    source: { type: String }
-  },
-
-  // PHASE 1 ENHANCEMENT: Enhanced Genres
-  enhancedGenres: {
-    primary: [{ type: String }],
-    edmClassification: { type: String },
-    confidence: { type: String, enum: ['high', 'medium', 'low'] },
-    source: { type: String }
   },
 
   // Metadata
@@ -458,7 +425,42 @@ const UnifiedEventSchema = new mongoose.Schema({
     version: { type: String },
     stages: [{ type: String }]
   },
-  enhancementSkipped: { type: Boolean, default: false }
+  enhancementSkipped: { type: Boolean, default: false },
+
+  // PHASE 1: Sound Characteristics
+  soundCharacteristics: {
+    energy: { type: Number, min: 0, max: 1 },
+    danceability: { type: Number, min: 0, max: 1 },
+    valence: { type: Number, min: 0, max: 1 },
+    tempo: { type: Number },
+    acousticness: { type: Number, min: 0, max: 1 },
+    instrumentalness: { type: Number, min: 0, max: 1 },
+    confidence: { type: Number, min: 0, max: 1 },
+    source: { type: String },
+    dataFreshness: { type: String }
+  },
+
+  // PHASE 1: Artist Metadata
+  artistMetadata: {
+    popularity: { type: Number, min: 0, max: 100 },
+    genres: [{ type: String }],
+    soundDNA: {
+      energy: { type: Number, min: 0, max: 1 },
+      valence: { type: Number, min: 0, max: 1 }
+    },
+    edmWeight: { type: Number, min: 0, max: 1 },
+    confidence: { type: Number, min: 0, max: 1 },
+    source: { type: String }
+  },
+
+  // PHASE 1: Enhanced Genres
+  enhancedGenres: {
+    primary: [{ type: String }],
+    expanded: [{ type: String }],
+    similarity: { type: mongoose.Schema.Types.Mixed },
+    edmClassification: { type: String },
+    confidence: { type: Number, min: 0, max: 1 }
+  }
 });
 
 // Create a 2dsphere index on the location field for geospatial queries
