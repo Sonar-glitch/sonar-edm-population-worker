@@ -306,6 +306,10 @@ const UnifiedEventSchema = new mongoose.Schema({
     required: true,
     index: true
   },
+  sourceCollection: {
+    type: String,
+    index: true
+  },
   id: {
     type: String,
     required: true,
@@ -339,8 +343,16 @@ const UnifiedEventSchema = new mongoose.Schema({
     sourceEvents: [{
       source: { type: String },
       sourceId: { type: String },
+  sourceCollection: {
+    type: String,
+    index: true
+  },
       collection: { type: String }
     }]
+  },
+  sourceCollection: {
+    type: String,
+    index: true
   },
   
   // SURGICAL ADDITION: OCR Enhancement Fields
@@ -386,6 +398,32 @@ const UnifiedEventSchema = new mongoose.Schema({
     type: String
   },
   
+  // PHASE 1 ENHANCEMENT: Sound Characteristics
+  soundCharacteristics: {
+    energy: { type: Number, min: 0, max: 100 },
+    danceability: { type: Number, min: 0, max: 100 },
+    valence: { type: Number, min: 0, max: 100 },
+    tempo: { type: Number },
+    confidence: { type: String, enum: ['high', 'medium', 'low'] },
+    source: { type: String }
+  },
+
+  // PHASE 1 ENHANCEMENT: Artist Metadata
+  artistMetadata: {
+    popularity: { type: Number, min: 0, max: 100 },
+    edmWeight: { type: Number, min: 0, max: 1 },
+    confidence: { type: String, enum: ['high', 'medium', 'low'] },
+    source: { type: String }
+  },
+
+  // PHASE 1 ENHANCEMENT: Enhanced Genres
+  enhancedGenres: {
+    primary: [{ type: String }],
+    edmClassification: { type: String },
+    confidence: { type: String, enum: ['high', 'medium', 'low'] },
+    source: { type: String }
+  },
+
   // Metadata
   createdAt: {
     type: Date,
