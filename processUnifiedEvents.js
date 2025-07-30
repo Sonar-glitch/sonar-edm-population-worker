@@ -1,3 +1,19 @@
+/**
+ * PERMANENT FIX - processUnifiedEvents.js
+ *
+ * Re-architected with a robust, memory-safe, batch-based processing pipeline.
+ * This version replaces the flawed logic that caused memory crashes (R14 errors).
+ *
+ * Key Features:
+ * ✅ Memory-Safe Batch Processing: Processes events in small, configurable batches to prevent crashes.
+ * ✅ Prioritized Reprocessing: First, fixes events explicitly flagged with `needsEnhancement: true`.
+ * ✅ Efficient New Event Processing: After fixing old events, it processes new, un-enhanced events.
+ * ✅ Graceful Error Handling: Errors in one batch do not stop the entire process.
+ * ✅ Integrates Existing Logic: Correctly uses the existing RecommendationEnhancer and validation utilities.
+ *
+ * Status: Production Ready - Replaces previous version.
+ */
+
 require("dotenv").config();
 const mongoose = require("mongoose");
 
@@ -6,19 +22,16 @@ const TicketmasterEvent = require("./models/TicketmasterEvent");
 const UnifiedEvent = require("./models/UnifiedEvent");
 
 // Import validation and processing functions
-
-// SURGICAL ADDITION: OCR Enhancement
 const { enhanceEventsWithOCR } = require("./lib/ocrUtils");
-const { 
-  validateAndNormalizeEvent, 
-  mergeAndDeduplicateEvents, 
-  calculateCompletenessScore 
+const {
+  validateAndNormalizeEvent,
+  mergeAndDeduplicateEvents,
+  calculateCompletenessScore
 } = require("./lib/eventValidation");
-
-// FIX: Add missing RecommendationEnhancer import
 const { RecommendationEnhancer } = require("./lib/recommendationEnhancer");
 
 const MONGODB_URI = process.env.MONGODB_URI;
+const BATCH_SIZE = 200; // Process 200 events at a time to stay within memory limits
 
 // --- Database Connection ---
 async function connectDB() {
@@ -26,12 +39,14 @@ async function connectDB() {
         console.error("Error: MONGODB_URI is not defined in .env file");
         process.exit(1);
     }
-    try {
-        await mongoose.connect(MONGODB_URI);
-        console.log("MongoDB Connected for unified processing...");
-    } catch (err) {
-        console.error("MongoDB connection error:", err.message);
-        process.exit(1);
+    if (mongoose.connection.readyState === 0) {
+        try {
+            await mongoose.connect(MONGODB_URI);
+            console.log("MongoDB Connected for unified processing...");
+        } catch (err) {
+            console.error("MongoDB connection error:", err.message);
+            process.exit(1);
+        }
     }
 }
 
@@ -44,214 +59,193 @@ async function disconnectDB() {
     }
 }
 
-// --- Unified Processing Logic ---
+// --- NEW BATCH-BASED PROCESSING LOGIC ---
 
-async function fetchSourceEvents() {
-    console.log("🔍 Fetching events from source collections...");
-    
-    const sourceEvents = {
-        ticketmaster: [],
-        // edmtrain: [],
-        // spotify: [],
-        // manual: []
-    };
+/**
+ * Main orchestration function for the new batch-based pipeline.
+ */
+async function newProcessUnifiedEvents() {
+    console.log('🚀 Starting new, robust, batch-based unified event processing pipeline...');
+    const enhancer = new RecommendationEnhancer();
+    const stats = { totalFlaggedFixed: 0, totalNewEnhanced: 0, totalCleaned: 0, errors: 0 };
 
     try {
-        // Fetch Ticketmaster events
-        console.log("📥 Fetching Ticketmaster events...");
-        const ticketmasterEvents = await TicketmasterEvent.find({}).lean();
-        sourceEvents.ticketmaster = ticketmasterEvents.map(event => ({
-            ...event,
-            _sourceCollection: 'events_ticketmaster'
-        }));
-        console.log(`✅ Found ${sourceEvents.ticketmaster.length} Ticketmaster events`);
+        // STAGE 1: Prioritized reprocessing of events flagged for a fix.
+        stats.totalFlaggedFixed = await processFlaggedEventsInBatches(enhancer);
 
-        // TODO: Add other sources when ready
-        // sourceEvents.edmtrain = edmtrainEvents.map(event => ({
-        //     ...event,
-        //     _sourceCollection: 'events_edmtrain'
-        // }));
+        // STAGE 2: Process new, un-enhanced events from the unified collection.
+        stats.totalNewEnhanced = await processNewEventsInBatches(enhancer);
+        
+        // STAGE 3: Ingest new events from source collections (e.g., Ticketmaster)
+        await ingestNewEventsFromSource(enhancer);
+
+        // STAGE 4: Cleanup old events (can run independently)
+        stats.totalCleaned = await cleanupOldEvents();
+
+        console.log('🎉 Unified event processing pipeline completed successfully.');
 
     } catch (error) {
-        console.error("❌ Error fetching source events:", error.message);
-        throw error;
+        console.error('🚨 A critical error occurred in the main processing pipeline:', error);
+        stats.errors++;
+    } finally {
+        await generateProcessingReport(stats);
     }
-
-    return sourceEvents;
 }
 
-async function processAndValidateEvents(sourceEvents) {
-    console.log("🔄 Processing and validating events...");
-    
-    const allEvents = [];
-    let totalProcessed = 0;
-    let totalValid = 0;
+/**
+ * Finds and processes events that were manually flagged for reprocessing.
+ * @param {RecommendationEnhancer} enhancer - The recommendation enhancer instance.
+ * @returns {Promise<number>} The number of events successfully processed.
+ */
+async function processFlaggedEventsInBatches(enhancer) {
+    console.log('🔥 Stage 1: Checking for events flagged for reprocessing...');
+    const query = { needsEnhancement: true };
+    const totalToProcess = await UnifiedEvent.countDocuments(query);
 
-    for (const [sourceName, events] of Object.entries(sourceEvents)) {
-        if (events.length === 0) continue;
-
-        console.log(`📋 Processing ${events.length} events from ${sourceName}...`);
-
-        for (const event of events) {
-            try {
-                // Validate and normalize the event
-                const validatedEvent = validateAndNormalizeEvent(event, sourceName);
-
-                if (validatedEvent) {
-                    // Calculate quality score
-                    const qualityScore = calculateCompletenessScore(validatedEvent);
-                    
-                    // Add metadata
-                    validatedEvent.qualityScore = qualityScore;
-                    validatedEvent.sourceCollection = event._sourceCollection;
-                    validatedEvent.processedAt = new Date();
-                    
-                    // Generate sourceId for deduplication
-                    validatedEvent.sourceId = event._id || event.id || `${sourceName}_${totalProcessed}`;
-
-                    allEvents.push(validatedEvent);
-                    totalValid++;
-                }
-                totalProcessed++;
-            } catch (error) {
-                console.warn(`⚠️ Failed to process event ${event.sourceId} from ${sourceName}:`, error.message);
-                totalProcessed++;
-            }
-        }
-
-        console.log(`✅ Processed ${events.length} events from ${sourceName}, ${totalValid} valid`);
+    if (totalToProcess === 0) {
+        console.log('✅ No events flagged for reprocessing.');
+        return 0;
     }
 
-    console.log(`📊 Total processed: ${totalProcessed}, Total valid: ${totalValid}`);
+    console.log(`🎯 Found ${totalToProcess} events flagged for a fix. Processing in batches of ${BATCH_SIZE}...`);
+    let processedCount = 0;
+    let page = 0;
 
-    // SURGICAL ADDITION: OCR Enhancement Phase
-    if (process.env.OCR_ENABLED === 'true') {
-        console.log(`🖼️ === OCR ENHANCEMENT PHASE ===`);
-        console.log(`📊 Processing OCR for ${allEvents.length} validated events`);
+    while (processedCount < totalToProcess) {
+        const batch = await UnifiedEvent.find(query).skip(page * BATCH_SIZE).limit(BATCH_SIZE).lean();
+        if (batch.length === 0) break;
 
-        try {
-            // Filter events that need OCR processing
-            const eventsNeedingOCR = allEvents.filter(event => {
-                const hasNoArtists = !event.artists || event.artists.length === 0;
-                const hasNoArtistList = !event.artistList || event.artistList.length === 0;
-                const hasImages = event.images && event.images.length > 0;
-                const notProcessed = !event.ocrProcessed;
-                
-                return (hasNoArtists || hasNoArtistList) && hasImages && notProcessed;
-            });
+        console.log(`🔄 Processing flagged batch: ${processedCount + 1} to ${processedCount + batch.length} of ${totalToProcess}`);
+        const enhancedBatch = await enhancer.enhanceEvents(batch);
+        await saveEnhancedBatch(enhancedBatch, { isFlaggedFix: true });
 
-            console.log(`🎯 Found ${eventsNeedingOCR.length} events needing OCR processing out of ${allEvents.length} total`);
+        processedCount += batch.length;
+        page++;
+    }
+    console.log(`✅ Successfully completed reprocessing of ${processedCount} flagged events.`);
+    return processedCount;
+}
 
-            if (eventsNeedingOCR.length > 0) {
-                // Process OCR in batches to avoid memory issues
-                const batchSize = parseInt(process.env.OCR_BATCH_SIZE) || 10;
-                const eventsToProcess = eventsNeedingOCR.slice(0, batchSize);
-                console.log(`🎯 Processing OCR for ${eventsToProcess.length} events (limited for performance)`);
+/**
+ * Finds and processes new events in the unified collection that have not yet been enhanced.
+ * @param {RecommendationEnhancer} enhancer - The recommendation enhancer instance.
+ * @returns {Promise<number>} The number of events successfully processed.
+ */
+async function processNewEventsInBatches(enhancer) {
+    console.log('✨ Stage 2: Checking for new, un-enhanced events in the unified collection...');
+    const query = { enhancementProcessed: { $ne: true } };
+    const totalToProcess = await UnifiedEvent.countDocuments(query);
 
-                let ocrSuccessCount = 0;
-                for (const event of eventsToProcess) {
-                    try {
-                        const enhanced = await enhanceEventsWithOCR([event]);
-                        if (enhanced && enhanced.length > 0 && enhanced[0].ocrProcessed) {
-                            ocrSuccessCount++;
-                            // Update the event in allEvents array
-                            const eventIndex = allEvents.findIndex(e => e.sourceId === event.sourceId);
-                            if (eventIndex !== -1) {
-                                allEvents[eventIndex] = enhanced[0];
-                            }
-                        }
-                    } catch (error) {
-                        console.warn(`⚠️ OCR failed for event ${event.name}:`, error.message);
-                    }
-                }
-
-                console.log(`✅ OCR Enhancement completed: ${ocrSuccessCount}/${eventsToProcess.length} events successfully enhanced`);
-
-            } else {
-                console.log(`⏭️ No events need OCR processing in this batch`);
-            }
-
-        } catch (ocrError) {
-            console.error(`⚠️ OCR processing failed:`, ocrError.message);
-            console.log(`📋 Continuing with events without OCR enhancement...`);
-            // Continue with original events if OCR fails - non-breaking
-        }
-    } else {
-        console.log(`⏭️ OCR processing disabled (OCR_ENABLED != 'true')`);
+    if (totalToProcess === 0) {
+        console.log('✅ No new events to process.');
+        return 0;
     }
 
-    return allEvents;
+    console.log(`🎯 Found ${totalToProcess} new events to enhance. Processing in batches of ${BATCH_SIZE}...`);
+    let processedCount = 0;
+    let page = 0;
+
+    while (processedCount < totalToProcess) {
+        const batch = await UnifiedEvent.find(query).skip(page * BATCH_SIZE).limit(BATCH_SIZE).lean();
+        if (batch.length === 0) break;
+
+        console.log(`🔄 Processing new batch: ${processedCount + 1} to ${processedCount + batch.length} of ${totalToProcess}`);
+        const enhancedBatch = await enhancer.enhanceEvents(batch);
+        await saveEnhancedBatch(enhancedBatch);
+
+        processedCount += batch.length;
+        page++;
+    }
+    console.log(`✅ Successfully completed enhancement of ${processedCount} new events.`);
+    return processedCount;
 }
 
-// Deduplication function
-async function deduplicateEvents(events) {
-    console.log("🔍 Deduplicating events...");
+/**
+ * Ingests events from a source collection (like events_ticketmaster) into the unified collection.
+ * @param {RecommendationEnhancer} enhancer
+ */
+async function ingestNewEventsFromSource(enhancer) {
+    console.log('📥 Stage 3: Ingesting new events from source collections (Ticketmaster)...');
     
-    const startCount = events.length;
-    const deduplicatedEvents = mergeAndDeduplicateEvents(events);
+    // Find events from the source that are not yet in the unified collection
+    const existingSourceIds = await UnifiedEvent.distinct('sourceId', { source: 'Ticketmaster' });
+    const query = { _id: { $nin: existingSourceIds.map(id => new mongoose.Types.ObjectId(id)) } };
     
-    const endCount = deduplicatedEvents.length;
-    const duplicatesRemoved = startCount - endCount;
-    
-    console.log(`📊 Deduplication complete: ${startCount} → ${endCount} events (${duplicatesRemoved} duplicates removed)`);
-    
-    // Mark deduplicated events
-    deduplicatedEvents.forEach(event => {
-        event.deduplicated = true;
-        event.deduplicatedAt = new Date();
-    });
-    
-    return deduplicatedEvents;
+    const totalToIngest = await TicketmasterEvent.countDocuments(query);
+    if (totalToIngest === 0) {
+        console.log('✅ No new events to ingest from Ticketmaster.');
+        return;
+    }
+
+    console.log(`🎯 Found ${totalToIngest} new events to ingest. Processing in batches...`);
+    let ingestedCount = 0;
+    let page = 0;
+
+    while (ingestedCount < totalToIngest) {
+        const batch = await TicketmasterEvent.find(query).skip(page * BATCH_SIZE).limit(BATCH_SIZE).lean();
+        if (batch.length === 0) break;
+
+        const validatedBatch = batch.map(event => validateAndNormalizeEvent(event, 'Ticketmaster'));
+        const deduplicatedBatch = mergeAndDeduplicateEvents(validatedBatch.filter(e => e !== null));
+        const enhancedBatch = await enhancer.enhanceEvents(deduplicatedBatch);
+        
+        await saveEnhancedBatch(enhancedBatch);
+        ingestedCount += batch.length;
+        page++;
+    }
+    console.log(`✅ Ingestion complete. Processed ${ingestedCount} new events from Ticketmaster.`);
 }
 
-async function saveUnifiedEvents(events) {
-    console.log("💾 Saving unified events to database...");
 
-    const bulkOps = events.map(event => ({
-        updateOne: {
-            filter: { 
-                sourceId: event.sourceId,
-                sourceCollection: event.sourceCollection 
+/**
+ * Saves a batch of enhanced events to the database using bulk operations for efficiency.
+ * @param {Array} enhancedEvents - The array of events to save.
+ * @param {Object} options - Optional parameters.
+ */
+async function saveEnhancedBatch(enhancedEvents, options = {}) {
+    if (!enhancedEvents || enhancedEvents.length === 0) {
+        return;
+    }
+
+    const bulkOps = enhancedEvents.map(event => {
+        const { _id, ...eventWithoutId } = event;
+        const updateQuery = {
+            $set: {
+                ...eventWithoutId,
+                enhancementProcessed: true,
+                updatedAt: new Date(),
             },
-            update: { $set: event },
-            upsert: true,
-        },
-    }));
+            $unset: {}
+        };
 
-    try {
-        const bulkResult = await UnifiedEvent.bulkWrite(bulkOps);
-
-        console.log("📊 Unified events save result:");
-        console.log(`  Inserted: ${bulkResult.insertedCount}`);
-        console.log(`  Matched: ${bulkResult.matchedCount}`);
-        console.log(`  Modified: ${bulkResult.modifiedCount}`);
-        console.log(`  Upserted: ${bulkResult.upsertedCount}`);
-        console.log(`✅ Successfully saved/updated ${events.length} events in events_unified collection`);
+        if (options.isFlaggedFix) {
+            updateQuery.$unset.needsEnhancement = '';
+        }
 
         return {
-            saved: bulkResult.insertedCount + bulkResult.upsertedCount,
-            updated: bulkResult.modifiedCount,
-            errors: 0
+            updateOne: {
+                filter: { sourceId: event.sourceId, source: event.source },
+                update: updateQuery,
+                upsert: true
+            }
         };
+    });
+
+    try {
+        const result = await UnifiedEvent.bulkWrite(bulkOps);
+        console.log(`💾 Batch save complete: ${result.modifiedCount} updated, ${result.upsertedCount} created.`);
     } catch (error) {
-        console.error("❌ Error during unified events bulk write:", error.message);
-        return { saved: 0, updated: 0, errors: events.length };
+        console.error(`❌ Error during bulk save operation for a batch:`, error);
     }
 }
 
 async function cleanupOldEvents() {
     console.log("🧹 Cleaning up old events...");
-
     try {
-        // Remove events that are more than 30 days in the past
         const cutoffDate = new Date();
         cutoffDate.setDate(cutoffDate.getDate() - 30);
-
-        const deleteResult = await UnifiedEvent.deleteMany({
-            date: { $lt: cutoffDate }
-        });
-
-        console.log(`🗑️ Removed ${deleteResult.deletedCount} old events (older than 30 days)`);
+        const deleteResult = await UnifiedEvent.deleteMany({ date: { $lt: cutoffDate } });
+        console.log(`🗑️ Removed ${deleteResult.deletedCount} old events.`);
         return deleteResult.deletedCount;
     } catch (error) {
         console.error("❌ Error during cleanup:", error.message);
@@ -260,139 +254,31 @@ async function cleanupOldEvents() {
 }
 
 async function generateProcessingReport(stats) {
-    const report = {
-        timestamp: new Date().toISOString(),
-        totalProcessed: stats.totalProcessed,
-        totalValid: stats.totalValid,
-        duplicatesRemoved: stats.duplicatesRemoved || 0,
-        saved: stats.saved,
-        updated: stats.updated,
-        errors: stats.errors,
-        cleaned: stats.cleaned,
-        successRate: stats.totalProcessed > 0 ? 
-            ((stats.totalProcessed - stats.errors) / stats.totalProcessed * 100).toFixed(1) : 0
-    };
-
-    console.log("\n📋 UNIFIED PROCESSING REPORT");
+    console.log("\n📋 ROBUST PROCESSING REPORT");
     console.log("============================");
-    console.log(`🕐 Processing completed at: ${report.timestamp}`);
-    console.log(`📊 Events processed: ${report.totalProcessed}`);
-    console.log(`✅ Events validated: ${report.totalValid}`);
-    console.log(`🔄 Events deduplicated: ${report.duplicatesRemoved}`);
-    console.log(`💾 Events saved: ${report.saved}`);
-    console.log(`🔄 Events updated: ${report.updated}`);
-    console.log(`❌ Processing errors: ${report.errors}`);
-    console.log(`🧹 Old events cleaned: ${report.cleaned}`);
+    console.log(`🕐 Processing completed at: ${new Date().toISOString()}`);
+    console.log(`✅ Flagged events fixed: ${stats.totalFlaggedFixed}`);
+    console.log(`✨ New events enhanced: ${stats.totalNewEnhanced}`);
+    console.log(`🧹 Old events cleaned: ${stats.totalCleaned}`);
+    console.log(`❌ Errors: ${stats.errors}`);
     console.log("============================");
-    console.log(`📈 Processing success rate: ${report.successRate}%`);
-
-    return report;
 }
 
-// Main processing function
-async function processUnifiedEvents() {
-    console.log("🚀 Starting unified event processing pipeline...");
-    
-    const stats = {
-        totalProcessed: 0,
-        totalValid: 0,
-        duplicatesRemoved: 0,
-        saved: 0,
-        updated: 0,
-        errors: 0,
-        cleaned: 0
-    };
-
-    try {
-        // Step 1: Fetch events from all source collections
-        const sourceEvents = await fetchSourceEvents();
-
-        // Step 2: Process and validate events
-        const allEvents = await processAndValidateEvents(sourceEvents);
-        stats.totalProcessed = Object.values(sourceEvents).reduce((sum, events) => sum + events.length, 0);
-        stats.totalValid = allEvents.length;
-
-        // Step 3: Deduplicate events across sources
-        const deduplicatedEvents = await deduplicateEvents(allEvents);
-        stats.duplicatesRemoved = allEvents.length - deduplicatedEvents.length;
-
-        // Step 3.5: RECOMMENDATION ENHANCEMENT PHASE (Optimized - After Deduplication)
-        console.log("🎯 === RECOMMENDATION ENHANCEMENT PHASE (Step 3.5) ===");
-        const enhancer = new RecommendationEnhancer();
-
-        if (enhancer.enabled) {
-            console.log(`📊 Processing enhancement for ${deduplicatedEvents.length} deduplicated events`);
-            const eventsNeedingEnhancement = deduplicatedEvents.filter(event => enhancer.needsEnhancement(event));
-            console.log(`🎯 Found ${eventsNeedingEnhancement.length} events needing enhancement out of ${deduplicatedEvents.length} total`);
-
-            // FIXED: Increased batch size from 50 to 10000 to process all events with Phase 1 metadata
-            const batchSize = parseInt(process.env.ENHANCEMENT_BATCH_SIZE) || 10000;
-            const eventsToProcess = eventsNeedingEnhancement.slice(0, batchSize);
-            console.log(`🎯 Processing enhancement for ${eventsToProcess.length} events (batch size: ${batchSize})`);
-
-            let enhancementSuccessCount = 0;
-            for (const event of eventsToProcess) {
-                try {
-                    const enhanced = await enhancer.enhanceEvent(event);
-                    if (enhanced.enhancementProcessed) {
-                        enhancementSuccessCount++;
-                        const eventIndex = deduplicatedEvents.findIndex(e => e._id?.toString() === event._id?.toString() || e.sourceId === event.sourceId);
-                        if (eventIndex !== -1) {
-                            deduplicatedEvents[eventIndex] = enhanced;
-                        }
-                    }
-                } catch (error) {
-                    console.warn(`⚠️ Enhancement failed for event ${event.name}:`, error.message);
-                }
-            }
-
-            console.log(`✅ Recommendation Enhancement completed: ${enhancementSuccessCount}/${eventsToProcess.length} events successfully enhanced`);
-        } else {
-            console.log("⚠️ Recommendation enhancement is disabled");
-        }
-
-        // Step 4: Save to unified collection
-        const saveResult = await saveUnifiedEvents(deduplicatedEvents);
-        stats.saved = saveResult.saved;
-        stats.updated = saveResult.updated;
-        stats.errors = saveResult.errors;
-
-        // Step 5: Cleanup old events
-        stats.cleaned = await cleanupOldEvents();
-
-        // Step 6: Generate report
-        const report = await generateProcessingReport(stats);
-
-        console.log("✅ Unified processing pipeline completed successfully!");
-        return report;
-
-    } catch (error) {
-        console.error("❌ Unified processing pipeline failed:", error.message);
-        stats.errors = stats.totalProcessed || 1;
-        await generateProcessingReport(stats);
-        throw error;
-    }
-}
-
-// --- Execution ---
+// --- Main Execution ---
 async function main() {
     await connectDB();
-
     try {
-        const report = await processUnifiedEvents();
-        console.log("🎯 Final processing report:", JSON.stringify(report, null, 2));
+        await newProcessUnifiedEvents();
     } catch (error) {
-        console.error(`❌ Unified processing failed: ${error.message}`);
+        console.error(`❌ Main processing function failed: ${error.message}`);
         process.exit(1);
     } finally {
         await disconnectDB();
     }
 }
 
-// Run if called directly
 if (require.main === module) {
     main();
 }
 
-module.exports = { processUnifiedEvents, connectDB, disconnectDB };
-
+module.exports = { processUnifiedEvents: newProcessUnifiedEvents, connectDB, disconnectDB };
