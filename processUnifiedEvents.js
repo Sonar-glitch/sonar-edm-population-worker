@@ -408,7 +408,7 @@ async function processUnifiedEvents() {
 
     try {
         const BATCH_SIZE = 200; // Define batch size here for safety
-        const query = {}; // Start with an empty query to fetch all events
+        const query = {}; // An empty query to fetch all events from the source
         const totalToProcess = await TicketmasterEvent.countDocuments(query);
 
         if (totalToProcess === 0) {
@@ -418,52 +418,47 @@ async function processUnifiedEvents() {
 
         console.log(`🎯 Found ${totalToProcess} total source events. Processing in batches of ${BATCH_SIZE}...`);
 
+        // The memory-safe loop
         for (let skip = 0; skip < totalToProcess; skip += BATCH_SIZE) {
             console.log(`\n--- Processing Batch: ${skip + 1} to ${Math.min(skip + BATCH_SIZE, totalToProcess)} ---`);
             
-            // 1. Fetch a batch of source events (MEMORY SAFE)
+            // Step 1: Fetch a BATCH of source events (MEMORY SAFE)
             const sourceBatch = await TicketmasterEvent.find(query).skip(skip).limit(BATCH_SIZE).lean();
             if (sourceBatch.length === 0) break;
 
-            // 2. Process and Validate the batch (using your original function)
+            // Step 2: Process and Validate the batch (using YOUR original function)
             const validatedBatch = await processAndValidateEvents({ ticketmaster: sourceBatch });
             stats.totalProcessed += sourceBatch.length;
             stats.totalValid += validatedBatch.length;
 
-            // 3. Enhance the batch
+            // Step 3: Enhance the batch (using YOUR original logic)
             console.log("🎯 Enhancing batch...");
-            const eventsToProcess = validatedBatch.filter(event => enhancer.needsEnhancement(event));
+            const eventsNeedingEnhancement = validatedBatch.filter(event => enhancer.needsEnhancement(event));
             let enhancedBatch = [...validatedBatch]; // Start with the validated batch
-
-            if (eventsToProcess.length > 0) {
-                 // Create a temporary array for enhanced events to merge back
+            if (eventsNeedingEnhancement.length > 0) {
                 const tempEnhanced = [];
-                for (const event of eventsToProcess) {
+                for (const event of eventsNeedingEnhancement) {
                     tempEnhanced.push(await enhancer.enhanceEvent(event));
                 }
-                
-                // Merge enhanced events back into the main batch by sourceId
-                enhancedBatch = validatedBatch.map(vb => {
-                    const foundEnhanced = tempEnhanced.find(te => te.sourceId === vb.sourceId);
-                    return foundEnhanced ? foundEnhanced : vb;
-                });
+                // Merge enhanced events back into the main batch
+                enhancedBatch = validatedBatch.map(vb => tempEnhanced.find(te => te.sourceId === vb.sourceId) || vb);
             }
             
-            // 4. Deduplicate the batch (using your original function)
+            // Step 4: Deduplicate the batch (using YOUR original function)
             const deduplicatedBatch = await deduplicateEvents(enhancedBatch);
             stats.duplicatesRemoved += enhancedBatch.length - deduplicatedBatch.length;
 
-            // 5. Save the batch (using your original function)
+            // Step 5: Save the batch (using YOUR original function)
             const saveResult = await saveUnifiedEvents(deduplicatedBatch);
             stats.saved += saveResult.saved;
             stats.updated += saveResult.updated;
             stats.errors += saveResult.errors;
         }
 
-        // 6. Cleanup old events (runs once at the end, using your original function)
+        // Step 6: Cleanup old events (using YOUR original function)
         stats.cleaned = await cleanupOldEvents();
 
-        // 7. Generate final report (using your original function)
+        // Step 7: Generate final report (using YOUR original function)
         await generateProcessingReport(stats);
 
         console.log("✅ Unified processing pipeline completed successfully!");
