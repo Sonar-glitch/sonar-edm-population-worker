@@ -381,6 +381,12 @@ async function generateProcessingReport(stats) {
  * This new version uses a batch-based pipeline to prevent memory crashes
  * while preserving all other helper functions in this file.
  */
+// Main processing function
+/**
+ * SURGICAL REPLACEMENT of the main processing function.
+ * This new version uses a batch-based pipeline to prevent memory crashes
+ * while preserving all other helper functions in this file.
+ */
 async function processUnifiedEvents() {
     console.log("🚀 Starting SURGICALLY REPAIRED unified event processing pipeline...");
 
@@ -401,15 +407,16 @@ async function processUnifiedEvents() {
     }
 
     try {
+        const BATCH_SIZE = 200; // Define batch size here for safety
         const query = {}; // Start with an empty query to fetch all events
         const totalToProcess = await TicketmasterEvent.countDocuments(query);
+
         if (totalToProcess === 0) {
             console.log("✅ No source events to process.");
             return;
         }
 
         console.log(`🎯 Found ${totalToProcess} total source events. Processing in batches of ${BATCH_SIZE}...`);
-        let processedCount = 0;
 
         for (let skip = 0; skip < totalToProcess; skip += BATCH_SIZE) {
             console.log(`\n--- Processing Batch: ${skip + 1} to ${Math.min(skip + BATCH_SIZE, totalToProcess)} ---`);
@@ -418,34 +425,45 @@ async function processUnifiedEvents() {
             const sourceBatch = await TicketmasterEvent.find(query).skip(skip).limit(BATCH_SIZE).lean();
             if (sourceBatch.length === 0) break;
 
-            // 2. Process and Validate the batch
+            // 2. Process and Validate the batch (using your original function)
             const validatedBatch = await processAndValidateEvents({ ticketmaster: sourceBatch });
             stats.totalProcessed += sourceBatch.length;
             stats.totalValid += validatedBatch.length;
 
             // 3. Enhance the batch
             console.log("🎯 Enhancing batch...");
-            // This now correctly calls the new batch method in the enhancer
-            const enhancedBatch = await enhancer.enhanceEvents(validatedBatch);
+            const eventsToProcess = validatedBatch.filter(event => enhancer.needsEnhancement(event));
+            let enhancedBatch = [...validatedBatch]; // Start with the validated batch
 
-            // 4. Deduplicate the batch
-            console.log("🔍 Deduplicating batch...");
+            if (eventsToProcess.length > 0) {
+                 // Create a temporary array for enhanced events to merge back
+                const tempEnhanced = [];
+                for (const event of eventsToProcess) {
+                    tempEnhanced.push(await enhancer.enhanceEvent(event));
+                }
+                
+                // Merge enhanced events back into the main batch by sourceId
+                enhancedBatch = validatedBatch.map(vb => {
+                    const foundEnhanced = tempEnhanced.find(te => te.sourceId === vb.sourceId);
+                    return foundEnhanced ? foundEnhanced : vb;
+                });
+            }
+            
+            // 4. Deduplicate the batch (using your original function)
             const deduplicatedBatch = await deduplicateEvents(enhancedBatch);
             stats.duplicatesRemoved += enhancedBatch.length - deduplicatedBatch.length;
 
-            // 5. Save the batch
+            // 5. Save the batch (using your original function)
             const saveResult = await saveUnifiedEvents(deduplicatedBatch);
             stats.saved += saveResult.saved;
             stats.updated += saveResult.updated;
             stats.errors += saveResult.errors;
-
-            processedCount += sourceBatch.length;
         }
 
-        // 6. Cleanup old events (runs once at the end)
+        // 6. Cleanup old events (runs once at the end, using your original function)
         stats.cleaned = await cleanupOldEvents();
 
-        // 7. Generate final report
+        // 7. Generate final report (using your original function)
         await generateProcessingReport(stats);
 
         console.log("✅ Unified processing pipeline completed successfully!");
@@ -458,6 +476,7 @@ async function processUnifiedEvents() {
         throw error;
     }
 }
+
 
 
 
