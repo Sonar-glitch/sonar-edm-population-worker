@@ -99,7 +99,8 @@ async function fetchSourceEvents() {
     return sourceEvents;
 }
 
-async function processAndValidateEvents(sourceEvents) {
+async function processAndValidateEvents(sourceEvents, { validateAndNormalizeEvent, calculateCompletenessScore }) {
+
     console.log("🔄 Processing and validating events...");
 
     const allEvents = [];
@@ -203,7 +204,8 @@ async function processAndValidateEvents(sourceEvents) {
 }
 
 // Deduplication function
-async function deduplicateEvents(events) {
+async function deduplicateEvents(events, { mergeAndDeduplicateEvents }) {
+
     console.log("🔍 Deduplicating events...");
 
     const startCount = events.length;
@@ -427,7 +429,8 @@ async function processUnifiedEvents() {
             if (sourceBatch.length === 0) break;
 
             // Step 2: Process and Validate the batch (using YOUR original function)
-            const validatedBatch = await processAndValidateEvents({ ticketmaster: sourceBatch });
+            const validatedBatch = await processAndValidateEvents({ ticketmaster: sourceBatch }, { validateAndNormalizeEvent, calculateCompletenessScore });
+
             stats.totalProcessed += sourceBatch.length;
             stats.totalValid += validatedBatch.length;
 
@@ -445,7 +448,8 @@ async function processUnifiedEvents() {
             }
             
             // Step 4: Deduplicate the batch (using YOUR original function)
-            const deduplicatedBatch = await deduplicateEvents(enhancedBatch);
+            const deduplicatedBatch = await deduplicateEvents(enhancedBatch, { mergeAndDeduplicateEvents });
+
             stats.duplicatesRemoved += enhancedBatch.length - deduplicatedBatch.length;
 
             // Step 5: Save the batch (using YOUR original function)
