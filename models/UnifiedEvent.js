@@ -495,4 +495,3 @@ UnifiedEventSchema.pre("save", function (next) {
 
 // Export with explicit collection name for the unified collection
 module.exports = mongoose.model("UnifiedEvent", UnifiedEventSchema, "events_unified");
-
