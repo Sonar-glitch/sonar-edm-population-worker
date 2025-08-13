@@ -21,11 +21,16 @@ const { enhanceEventsWithOCR } = require("./lib/ocrUtils");
 const {
   validateAndNormalizeEvent,
   mergeAndDeduplicateEvents,
-  calculateCompletenessScore
+  calculateCompletenessScore,
+  cleanupOldEvents,
+  validateUnifiedArchitecture
 } = require("./lib/eventValidation");
 const { RecommendationEnhancer } = require("./lib/recommendationEnhancer");
 
 const MONGODB_URI = process.env.MONGODB_URI;
+
+// Architecture validation
+const architectureValidator = validateUnifiedArchitecture();
 
 // --- Database Connection (PRESERVED) ---
 async function connectDB() {
@@ -101,29 +106,58 @@ async function deduplicateEvents(events) {
 }
 
 async function saveUnifiedEvents(events) {
-    console.log("💾 === SAVING UNIFIED EVENTS WITH PHASE 1 DEBUG ===");
+    console.log("💾 === SAVING UNIFIED EVENTS WITH ENHANCED DEDUPLICATION ===");
+    
+    // Validate architecture compliance
+    if (!architectureValidator.isValidTarget('events_unified')) {
+        console.error('❌ Invalid target collection - architecture validation failed');
+        return { saved: 0, updated: 0, errors: events.length };
+    }
+    
     if (events.length === 0) {
         console.log("✅ No events to save in this batch.");
         return { saved: 0, updated: 0, errors: 0 };
     }
+    
+    console.log(`💾 Preparing to save ${events.length} events to events_unified...`);
+    console.log("🎯 Using optimized single source of truth architecture");
+    
     const bulkOps = events.map(event => {
         const { _id, ...eventWithoutId } = event;
         return {
             updateOne: {
                 filter: { sourceId: event.sourceId, source: event.source },
-                update: { $set: eventWithoutId },
+                update: { 
+                    $set: {
+                        ...eventWithoutId,
+                        updatedAt: new Date(), // Mark as recently updated
+                        processedAt: new Date() // Track processing time
+                    }
+                },
                 upsert: true,
             },
         };
     });
-    console.log(`💾 Preparing to save ${bulkOps.length} events to database...`);
+    
     try {
         const bulkResult = await UnifiedEvent.bulkWrite(bulkOps);
         console.log("📊 Unified events save result:", bulkResult);
-        return { saved: bulkResult.nUpserted + bulkResult.nInserted, updated: bulkResult.nModified, errors: 0 };
+        
+        // Auto-cleanup old events during save operation
+        const cleanupCount = await cleanupOldEvents(UnifiedEvent);
+        if (cleanupCount > 0) {
+            console.log(`🧹 Auto-cleanup: Removed ${cleanupCount} old events during save`);
+        }
+        
+        return { 
+            saved: bulkResult.nUpserted + bulkResult.nInserted, 
+            updated: bulkResult.nModified, 
+            errors: 0,
+            cleaned: cleanupCount
+        };
     } catch (error) {
         console.error("❌ Error during unified events bulk write:", error.message);
-        return { saved: 0, updated: 0, errors: events.length };
+        return { saved: 0, updated: 0, errors: events.length, cleaned: 0 };
     }
 }
 
