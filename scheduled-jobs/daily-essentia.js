@@ -4,8 +4,8 @@ const { MongoClient } = require('mongodb');
 const MONGODB_URI = process.env.MONGODB_URI;
 const ESSENTIA_SERVICE_URL = 'https://tiko-essentia-audio-service-2eff1b2af167.herokuapp.com';
 
-async function weeklyEssentiaJob() {
-  console.log('🕒 WEEKLY ESSENTIA ANALYSIS JOB STARTED');
+async function dailyEssentiaJob() {
+  console.log('🕒 DAILY ESSENTIA ANALYSIS JOB STARTED');
   console.log(`⏰ Started at: ${new Date().toISOString()}`);
   
   const client = new MongoClient(MONGODB_URI);
@@ -14,13 +14,24 @@ async function weeklyEssentiaJob() {
   try {
     const db = client.db('test');
     
-    // Find artists ready for Essentia analysis (limit to prevent timeout)
+    // Check if today is Sunday (0 = Sunday in JavaScript)
+    const today = new Date();
+    const dayOfWeek = today.getDay();
+    
+    // Run larger batch on Sundays, smaller daily batches on other days
+    const isWeeeklyDay = dayOfWeek === 0; // Sunday
+    const batchSize = isWeeeklyDay ? 25 : 5; // 25 on Sunday, 5 on other days
+    
+    console.log(`📅 Day of week: ${dayOfWeek} (${isWeeeklyDay ? 'Sunday - Large batch' : 'Weekday - Small batch'})`);
+    console.log(`🎯 Processing ${batchSize} artists`);
+    
+    // Find artists ready for Essentia analysis
     const readyArtists = await db.collection('artistGenres').find({
       spotifyId: { $exists: true, $ne: null },
       topTracks: { $exists: true, $ne: [] },
       essentiaProfileBuilt: { $ne: true },
       needsEssentiaAnalysis: true
-    }).limit(25).toArray(); // Process 25 artists per week
+    }).limit(batchSize).toArray();
     
     console.log(`🎵 Found ${readyArtists.length} artists ready for Essentia analysis`);
     
@@ -67,10 +78,11 @@ async function weeklyEssentiaJob() {
           console.log(`     ❌ HTTP Error: ${response.status} ${response.statusText}`);
         }
         
-        // Rate limiting - 30 seconds between artists to prevent service overload
+        // Rate limiting - different delays based on batch size
+        const delay = isWeeeklyDay ? 30000 : 15000; // 30s on Sunday, 15s on weekdays
         if (i < readyArtists.length - 1) {
-          console.log(`     ⏳ Waiting 30 seconds before next artist...`);
-          await new Promise(resolve => setTimeout(resolve, 30000));
+          console.log(`     ⏳ Waiting ${delay/1000} seconds before next artist...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
         }
         
       } catch (error) {
@@ -79,17 +91,18 @@ async function weeklyEssentiaJob() {
       }
     }
     
-    console.log(`\n✅ WEEKLY ESSENTIA ANALYSIS COMPLETE`);
+    console.log(`\n✅ DAILY ESSENTIA ANALYSIS COMPLETE`);
     console.log(`📊 Artists analyzed: ${analyzed}/${readyArtists.length}`);
     console.log(`❌ Failed analyses: ${failed}`);
     console.log(`📈 Success rate: ${((analyzed / readyArtists.length) * 100).toFixed(1)}%`);
+    console.log(`📅 Batch type: ${isWeeeklyDay ? 'Weekly (Sunday)' : 'Daily'}`);
     console.log(`⏰ Completed at: ${new Date().toISOString()}`);
     
     // Exit with success
     process.exit(0);
     
   } catch (error) {
-    console.error('❌ WEEKLY ESSENTIA JOB FAILED:', error);
+    console.error('❌ DAILY ESSENTIA JOB FAILED:', error);
     console.error('Stack trace:', error.stack);
     
     // Exit with error code
@@ -101,7 +114,7 @@ async function weeklyEssentiaJob() {
 }
 
 // Run the job
-weeklyEssentiaJob().catch(error => {
-  console.error('❌ Unhandled error in weekly Essentia job:', error);
+dailyEssentiaJob().catch(error => {
+  console.error('❌ Unhandled error in daily Essentia job:', error);
   process.exit(1);
 });
