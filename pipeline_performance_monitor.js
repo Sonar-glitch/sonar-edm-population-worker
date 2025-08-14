@@ -21,7 +21,7 @@ const { MongoClient } = require('mongodb');
 
 class PipelinePerformanceMonitor {
   constructor() {
-    this.mongoUrl = process.env.MONGODB_URI || process.env.MONGODB_URL || 'mongodb+srv://sonar-edm-user:L5x9Pk2v8Rs3nQm@sonar-edm.fos0w.mongodb.net/tiko_development?retryWrites=true&w=majority';
+    this.mongoUrl = process.env.MONGODB_URI || process.env.MONGODB_URL || 'mongodb+srv://sonar-edm-user:L5x9Pk2v8Rs3nQm@sonar-edm.fos0w.mongodb.net/test?retryWrites=true&w=majority';
     this.db = null;
     this.metrics = {
       enhancementEntries: {
@@ -54,7 +54,7 @@ class PipelinePerformanceMonitor {
     try {
       this.client = new MongoClient(this.mongoUrl);
       await this.client.connect();
-      this.db = this.client.db('tiko_development');
+      this.db = this.client.db('test'); // ✅ CORRECT: Using 'test' database as per project docs
       console.log('✅ Connected to MongoDB for monitoring');
     } catch (error) {
       console.error('❌ MongoDB connection failed:', error.message);

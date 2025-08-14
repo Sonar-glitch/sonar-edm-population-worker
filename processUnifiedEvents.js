@@ -29,6 +29,9 @@ const {
 } = require("./lib/eventValidation");
 const { RecommendationEnhancer } = require("./lib/recommendationEnhancer");
 
+// NEW: Import artist processing functions
+const { extractAndEnrichArtists } = require("./lib/artistProcessor");
+
 const MONGODB_URI = process.env.MONGODB_URI;
 
 // Architecture validation
@@ -215,6 +218,11 @@ async function processUnifiedEvents() {
             stats.updated += saveResult.updated;
             stats.errors += saveResult.errors;
             stats.cleaned += saveResult.cleaned;
+            
+            // NEW: Extract and enrich artists from processed events
+            if (deduplicatedBatch.length > 0) {
+                await extractAndEnrichArtists(deduplicatedBatch);
+            }
         }
 
         await generateProcessingReport(stats);
