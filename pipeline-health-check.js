@@ -24,7 +24,8 @@ import('node-fetch').then(async ({ default: fetch }) => {
     timestamp: new Date().toISOString(),
     phases: {},
     warnings: [],
-    errors: []
+    errors: [],
+    metrics: {}
   };
 
   function section(title) {
@@ -36,29 +37,83 @@ import('node-fetch').then(async ({ default: fetch }) => {
   const MONGO_URI = process.env.MONGODB_URI || process.env.MONGO_URI;
   const DB_NAME = process.env.MONGO_DB || process.env.MONGODB_DB || 'test';
   const ESSENTIA_SERVICE_URL = process.env.ESSENTIA_SERVICE_URL || 'https://tiko-essentia-audio-service-2eff1b2af167.herokuapp.com';
+  const MIN_REAL_TRACKS = +(process.env.MIN_REAL_TRACKS || 5);
+  const DASHBOARD_SESSION_COOKIE = process.env.DASHBOARD_SESSION_COOKIE; // e.g. "next-auth.session-token=..." OR full cookie string
+  const HEALTH_HISTORY = process.env.HEALTH_HISTORY === '1';
+  const HEALTH_ASSERT_DEMO = (process.env.HEALTH_ASSERT_DEMO || 'true').toLowerCase() === 'true';
 
   let client;
   try {
+    if (!MONGO_URI) {
+      section('CONFIG VALIDATION');
+      const msg = 'Missing MONGODB_URI environment variable';
+      console.error(msg);
+      summary.errors.push(msg);
+      throw new Error(msg);
+    }
     section('1. Database Foundations');
     client = new MongoClient(MONGO_URI);
     await client.connect();
     const db = client.db(DB_NAME);
 
-    const eventsUnifiedCount = await db.collection('events_unified').countDocuments();
+    const eventsCollection = db.collection('events_unified');
+    const eventsUnifiedCount = await eventsCollection.countDocuments();
     const eventsCount = await db.collection('events').countDocuments().catch(() => 0);
 
     console.log(`events_unified: ${eventsUnifiedCount}`);
     console.log(`events (legacy/supplementary): ${eventsCount}`);
 
+    // eventKey coverage & duplicate detection (sample / aggregate)
+    let eventKeyMissing = 0;
+    let eventKeyDuplicateGroups = 0;
+    let lineupHashCoverage = 0;
+    try {
+      // Count missing eventKey
+      eventKeyMissing = await eventsCollection.countDocuments({ $or: [ { eventKey: { $exists: false } }, { eventKey: null }, { eventKey: '' } ] });
+      // Duplicate groups
+      const dupAgg = await eventsCollection.aggregate([
+        { $match: { eventKey: { $exists: true, $ne: '' } } },
+        { $group: { _id: '$eventKey', c: { $sum: 1 } } },
+        { $match: { c: { $gt: 1 } } },
+        { $count: 'dups' }
+      ]).toArray();
+      eventKeyDuplicateGroups = dupAgg[0]?.dups || 0;
+      // lineupHash coverage (enrichment started indicator)
+      lineupHashCoverage = await eventsCollection.countDocuments({ 'enrichment.lineupHash': { $exists: true, $ne: null } });
+    } catch (e) {
+      summary.warnings.push('eventKey/lineupHash aggregation failed: ' + e.message);
+    }
+
+    const eventKeyCoveragePercent = eventsUnifiedCount ? +(((eventsUnifiedCount - eventKeyMissing)/eventsUnifiedCount)*100).toFixed(2) : 0;
+    const lineupHashCoveragePercent = eventsUnifiedCount ? +((lineupHashCoverage/eventsUnifiedCount)*100).toFixed(2) : 0;
+
+    if (eventKeyCoveragePercent < 95) summary.warnings.push(`eventKey coverage low: ${eventKeyCoveragePercent}%`);
+    if (eventKeyDuplicateGroups > 0) summary.warnings.push(`Duplicate eventKey groups detected: ${eventKeyDuplicateGroups}`);
+
     summary.phases.database = {
       events_unified: eventsUnifiedCount,
       events: eventsCount,
-      status: eventsUnifiedCount > 8000 ? 'ok' : 'low'
+      eventKeyCoveragePercent,
+      eventKeyDuplicateGroups,
+      lineupHashCoveragePercent,
+      status: (eventsUnifiedCount > 8000 && eventKeyCoveragePercent >= 98 && eventKeyDuplicateGroups === 0) ? 'ok' : 'attention'
     };
 
     const sample = await db.collection('events_unified').findOne({}, { projection: { name:1, date:1, sourceId:1, artistList:1 } });
     if (!sample?.name || !sample?.date || !sample?.sourceId) {
       summary.warnings.push('Sample event missing critical fields');
+    }
+
+    // Index presence checks (events_unified)
+    try {
+      const evIdx = await eventsCollection.listIndexes().toArray();
+      const hasEventKeyUnique = evIdx.some(i => i.key && i.key.eventKey === 1 && i.unique);
+      const hasDateEdmScore = evIdx.some(i => i.key && i.key.date === 1 && (i.key['enrichment.edmScore'] === -1 || i.key['enrichment.edmScore'] === 1));
+      summary.phases.database.indexes = { eventKeyUnique: hasEventKeyUnique, dateEdmScore: hasDateEdmScore };
+      if (!hasEventKeyUnique) summary.warnings.push('Missing unique index on events_unified.eventKey');
+      if (!hasDateEdmScore) summary.warnings.push('Missing date + enrichment.edmScore index');
+    } catch (e) {
+      summary.warnings.push('Index inspection failed: ' + e.message);
     }
 
     section('2. Artist Extraction & Enrichment Readiness');
@@ -116,18 +171,29 @@ import('node-fetch').then(async ({ default: fetch }) => {
     };
 
     section('5. User Sound Profile Cache');
-    const profileCount = await db.collection('user_sound_profiles').countDocuments().catch(()=>0);
-    const recentProfiles = await db.collection('user_sound_profiles').countDocuments({ createdAt: { $gte: new Date(Date.now()-86400000) } }).catch(()=>0);
+    const profilesColl = db.collection('user_sound_profiles');
+    const profileCount = await profilesColl.countDocuments().catch(()=>0);
+    const recentProfiles = await profilesColl.countDocuments({ createdAt: { $gte: new Date(Date.now()-86400000) } }).catch(()=>0);
     console.log(`user_sound_profiles total: ${profileCount}`);
     console.log(`profiles last 24h: ${recentProfiles}`);
+
+    // Stale profiles (>7d old) vs total
+    let staleProfiles = 0;
+    try {
+      staleProfiles = await profilesColl.countDocuments({ createdAt: { $lt: new Date(Date.now()-7*86400000) } });
+    } catch (e) {
+      summary.warnings.push('Stale profile count failed: ' + e.message);
+    }
 
     summary.phases.userProfiles = {
       total: profileCount,
       last24h: recentProfiles,
+      stale7d: staleProfiles,
+      stalePercent: profileCount ? +((staleProfiles/profileCount)*100).toFixed(1) : 0,
       status: profileCount > 0 ? 'ok' : 'empty'
     };
 
-    const idx = await db.collection('user_sound_profiles').listIndexes().toArray();
+    const idx = await profilesColl.listIndexes().toArray();
     const hasTTL = idx.some(i => i.key?.expiresAt && i.expireAfterSeconds);
     if (!hasTTL) summary.warnings.push('Missing TTL index on user_sound_profiles.expiresAt');
     summary.phases.userProfiles.ttlIndex = hasTTL;
@@ -136,15 +202,46 @@ import('node-fetch').then(async ({ default: fetch }) => {
     const apiBase = process.env.DASHBOARD_BASE_URL; // e.g., https://sonar-edm-staging.herokuapp.com
     if (apiBase) {
       try {
-        const resp = await fetch(`${apiBase}/api/user/cached-dashboard-data`, { headers: { 'Accept':'application/json' } });
+        const headers = { 'Accept':'application/json' };
+        if (DASHBOARD_SESSION_COOKIE) headers['Cookie'] = DASHBOARD_SESSION_COOKIE;
+        const resp = await fetch(`${apiBase}/api/user/cached-dashboard-data`, { headers });
         console.log(`/cached-dashboard-data: ${resp.status}`);
+        let apiData = null;
+        try { apiData = await resp.json(); } catch { /* ignore */ }
         summary.phases.api = { cachedDashboardData: resp.status };
+        if (apiData && typeof apiData === 'object') {
+          // Attempt to locate real vs demo flags & track counts
+          const demoMode = apiData.demoMode ?? apiData.isDemoMode;
+            // tracksAnalyzed may appear nested or as direct counts
+          const tracksAnalyzed = apiData.tracksAnalyzed || apiData.analyzedTrackCount || apiData?.profile?.tracksAnalyzed || 0;
+          summary.phases.api.demoMode = demoMode;
+          summary.phases.api.tracksAnalyzed = tracksAnalyzed;
+          if (HEALTH_ASSERT_DEMO && tracksAnalyzed >= MIN_REAL_TRACKS && demoMode === true) {
+            summary.errors.push(`Demo gating assertion FAILED: tracksAnalyzed=${tracksAnalyzed} >= ${MIN_REAL_TRACKS} but demoMode=true`);
+          }
+          if (HEALTH_ASSERT_DEMO && tracksAnalyzed < MIN_REAL_TRACKS && demoMode === false) {
+            summary.warnings.push(`Potential false real-mode: tracksAnalyzed=${tracksAnalyzed} below threshold ${MIN_REAL_TRACKS}`);
+          }
+        } else {
+          summary.warnings.push('API response JSON parse failed or empty for cached-dashboard-data');
+        }
       } catch (e) {
         console.log('API smoke test failed:', e.message);
         summary.warnings.push('API smoke test failed: ' + e.message);
       }
     } else {
       console.log('DASHBOARD_BASE_URL not set - skipping API smoke tests');
+    }
+
+    // Optional persistence of summary history for trend analysis
+    if (HEALTH_HISTORY) {
+      try {
+        const historyColl = db.collection('pipeline_health_history');
+        const historyDoc = { ...summary, _id: new Date(summary.timestamp) };
+        await historyColl.updateOne({ _id: historyDoc._id }, { $set: historyDoc }, { upsert: true });
+      } catch (e) {
+        summary.warnings.push('Failed to persist health history: ' + e.message);
+      }
     }
 
   } catch (err) {
@@ -156,5 +253,10 @@ import('node-fetch').then(async ({ default: fetch }) => {
     summary.durationMs = Date.now() - start;
     console.log(JSON.stringify(summary, null, 2));
     if (summary.errors.length) process.exitCode = 1;
+    // Guidance for scheduler (printed only in verbose run)
+    if (process.env.SHOW_SCHEDULER_HINTS === '1') {
+      console.log('\nScheduler Hint: Run every 30m via Heroku Scheduler -> "node heroku-workers/event-population/pipeline-health-check.js"');
+      console.log('Set HEALTH_HISTORY=1 once daily (e.g., 02:00) for trend capture.');
+    }
   }
 }).catch(e => { console.error('Failed to load fetch:', e.message); process.exit(1); });
