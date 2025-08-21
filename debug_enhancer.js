@@ -1,4 +1,4 @@
-const { RecommendationEnhancer } = require('./lib/recommendationEnhancer');
+const RecommendationEnhancer = require('./lib/recommendationEnhancer');
 const enhancer = new RecommendationEnhancer();
 console.log('Enhancer enabled:', enhancer.enabled);
 console.log('Enhancer methods:', Object.getOwnPropertyNames(Object.getPrototypeOf(enhancer)));

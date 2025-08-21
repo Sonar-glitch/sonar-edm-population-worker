@@ -178,9 +178,10 @@ async function processUnifiedEvents() {
     };
 
     const enhancer = new RecommendationEnhancer();
-    const enhancerAvailable = enhancer && typeof enhancer.enhanceEvents === 'function' && enhancer.enabled;
-    if (!enhancerAvailable) {
-        console.log("⚠️ Recommendation enhancement is disabled or unavailable. Continuing without enhancement.");
+    
+    if (!enhancer || typeof enhancer.enhanceEvents !== 'function') {
+        console.log("⚠️ Recommendation enhancement is disabled. Exiting.");
+        return;
     }
 
     try {
@@ -205,7 +206,7 @@ async function processUnifiedEvents() {
             stats.totalProcessed += sourceBatch.length;
             stats.totalValid += validatedBatch.length;
 
-            const enhancedBatch = enhancerAvailable ? await enhancer.enhanceEvents(validatedBatch) : validatedBatch;
+            const enhancedBatch = await enhancer.enhanceEvents(validatedBatch);
             const deduplicatedBatch = await deduplicateEvents(enhancedBatch);
             stats.duplicatesRemoved += enhancedBatch.length - deduplicatedBatch.length;
 

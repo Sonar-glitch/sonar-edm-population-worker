@@ -16,7 +16,7 @@ const {
 } = require("./lib/eventValidation");
 
 // FIX: Add missing RecommendationEnhancer import
-const { RecommendationEnhancer } = require("./lib/recommendationEnhancer");
+const RecommendationEnhancer = require("./lib/recommendationEnhancer");
 
 const MONGODB_URI = process.env.MONGODB_URI;
 

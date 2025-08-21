@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-const { RecommendationEnhancer } = require('./lib/recommendationEnhancer');
+const RecommendationEnhancer = require('./lib/recommendationEnhancer');
 
 async function debugNeedsEnhancement() {
   await mongoose.connect(process.env.MONGODB_URI);
