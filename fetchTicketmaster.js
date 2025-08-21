@@ -198,12 +198,24 @@ async function processCanadianCities() {
     // Original logic for Canadian cities would go here
 }
 
+const MIN_FETCH_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours => 4 times per day
+
 async function processDynamicCities() {
     console.log("\n🌍 PHASE 2: Processing Dynamic City Queue");
     const pendingCities = await getPendingCityRequests();
     console.log(`Found ${pendingCities.length} pending cities in the queue.`);
 
     for (const city of pendingCities) {
+        // Per-city throttle: skip if lastFetchedAt within 6h
+        if (city.lastFetchedAt) {
+            const age = Date.now() - new Date(city.lastFetchedAt).getTime();
+            if (age < MIN_FETCH_INTERVAL_MS) {
+                const hrs = (age/3600000).toFixed(2);
+                console.log(`⏭️  Skipping ${city.city} (fetched ${hrs}h ago; threshold 6h).`);
+                continue;
+            }
+        }
+
         console.log(`\n--- Processing: ${city.city}, ${city.country} ---`);
         
         // SURGICAL FIX #1: Pass city.city and city.country instead of city._id
@@ -214,6 +226,12 @@ async function processDynamicCities() {
         if (success) {
             // SURGICAL FIX #2: Pass city.city and city.country instead of city._id
             await markCityAsCompleted(city.city, city.country);
+            // Record fetch timestamp (uses direct collection update to avoid changing existing helper signatures)
+            try {
+                await mongoose.connection.db.collection('cityRequests').updateOne({ city: city.city, country: city.country }, { $set: { lastFetchedAt: new Date() } });
+            } catch (e) {
+                console.warn(`⚠️ Failed to set lastFetchedAt for ${city.city}: ${e.message}`);
+            }
             console.log(`✅ Successfully completed ${city.city}, ${city.country}`);
         } else {
             // If fetchEventsForCity returned false (failed), it already marked as error

@@ -34,12 +34,16 @@ import('node-fetch').then(async ({ default: fetch }) => {
   }
 
   // Use worker-standard env names
+  // CLI Args (allows scheduler simplicity): --history forces persistence of summary to pipeline_health_history
+  const ARGS = process.argv.slice(2);
+  const ARG_HISTORY = ARGS.includes('--history');
+
   const MONGO_URI = process.env.MONGODB_URI || process.env.MONGO_URI;
   const DB_NAME = process.env.MONGO_DB || process.env.MONGODB_DB || 'test';
   const ESSENTIA_SERVICE_URL = process.env.ESSENTIA_SERVICE_URL || 'https://tiko-essentia-audio-service-2eff1b2af167.herokuapp.com';
   const MIN_REAL_TRACKS = +(process.env.MIN_REAL_TRACKS || 5);
   const DASHBOARD_SESSION_COOKIE = process.env.DASHBOARD_SESSION_COOKIE; // e.g. "next-auth.session-token=..." OR full cookie string
-  const HEALTH_HISTORY = process.env.HEALTH_HISTORY === '1';
+  const HEALTH_HISTORY = ARG_HISTORY || process.env.HEALTH_HISTORY === '1';
   const HEALTH_ASSERT_DEMO = (process.env.HEALTH_ASSERT_DEMO || 'true').toLowerCase() === 'true';
 
   let client;
@@ -56,17 +60,20 @@ import('node-fetch').then(async ({ default: fetch }) => {
     await client.connect();
     const db = client.db(DB_NAME);
 
-    const eventsCollection = db.collection('events_unified');
-    const eventsUnifiedCount = await eventsCollection.countDocuments();
+  const eventsCollection = db.collection('events_unified');
+  const eventsUnifiedCount = await eventsCollection.countDocuments();
     const eventsCount = await db.collection('events').countDocuments().catch(() => 0);
 
     console.log(`events_unified: ${eventsUnifiedCount}`);
     console.log(`events (legacy/supplementary): ${eventsCount}`);
 
     // eventKey coverage & duplicate detection (sample / aggregate)
-    let eventKeyMissing = 0;
-    let eventKeyDuplicateGroups = 0;
-    let lineupHashCoverage = 0;
+  let eventKeyMissing = 0;
+  let eventKeyDuplicateGroups = 0;
+  let lineupHashCoverage = 0;
+  let edmScoreCoverage = 0; // events with enrichment.edmScore > 0
+  let lineupCoverage = 0;   // events where lineupCoverage metric (derived) > 0 OR artistList length >0
+  let duplicateMarkedCount = 0;
     try {
       // Count missing eventKey
       eventKeyMissing = await eventsCollection.countDocuments({ $or: [ { eventKey: { $exists: false } }, { eventKey: null }, { eventKey: '' } ] });
@@ -78,14 +85,22 @@ import('node-fetch').then(async ({ default: fetch }) => {
         { $count: 'dups' }
       ]).toArray();
       eventKeyDuplicateGroups = dupAgg[0]?.dups || 0;
+      // Count already-marked duplicates
+      duplicateMarkedCount = await eventsCollection.countDocuments({ duplicateOf: { $exists: true } });
       // lineupHash coverage (enrichment started indicator)
       lineupHashCoverage = await eventsCollection.countDocuments({ 'enrichment.lineupHash': { $exists: true, $ne: null } });
+      // edmScore coverage (strict >0)
+      edmScoreCoverage = await eventsCollection.countDocuments({ 'enrichment.edmScore': { $gt: 0 } });
+      // lineup coverage (artistList populated or enrichment lineupArtistIds present)
+      lineupCoverage = await eventsCollection.countDocuments({ $or: [ { artistList: { $exists:true, $not: { $size: 0 } } }, { 'enrichment.lineupArtistIds.0': { $exists: true } } ] });
     } catch (e) {
       summary.warnings.push('eventKey/lineupHash aggregation failed: ' + e.message);
     }
 
     const eventKeyCoveragePercent = eventsUnifiedCount ? +(((eventsUnifiedCount - eventKeyMissing)/eventsUnifiedCount)*100).toFixed(2) : 0;
     const lineupHashCoveragePercent = eventsUnifiedCount ? +((lineupHashCoverage/eventsUnifiedCount)*100).toFixed(2) : 0;
+    const edmScoreCoveragePercent = eventsUnifiedCount ? +((edmScoreCoverage/eventsUnifiedCount)*100).toFixed(2) : 0;
+    const lineupCoveragePercent = eventsUnifiedCount ? +((lineupCoverage/eventsUnifiedCount)*100).toFixed(2) : 0;
 
     if (eventKeyCoveragePercent < 95) summary.warnings.push(`eventKey coverage low: ${eventKeyCoveragePercent}%`);
     if (eventKeyDuplicateGroups > 0) summary.warnings.push(`Duplicate eventKey groups detected: ${eventKeyDuplicateGroups}`);
@@ -95,9 +110,15 @@ import('node-fetch').then(async ({ default: fetch }) => {
       events: eventsCount,
       eventKeyCoveragePercent,
       eventKeyDuplicateGroups,
+      duplicateMarkedCount,
       lineupHashCoveragePercent,
+      edmScoreCoveragePercent,
+      lineupCoveragePercent,
       status: (eventsUnifiedCount > 8000 && eventKeyCoveragePercent >= 98 && eventKeyDuplicateGroups === 0) ? 'ok' : 'attention'
     };
+    if (duplicateMarkedCount && eventKeyDuplicateGroups === 0) {
+      summary.warnings.push(`Orphan marked duplicates (duplicateOf) remaining: ${duplicateMarkedCount}`);
+    }
 
     const sample = await db.collection('events_unified').findOne({}, { projection: { name:1, date:1, sourceId:1, artistList:1 } });
     if (!sample?.name || !sample?.date || !sample?.sourceId) {
@@ -117,15 +138,17 @@ import('node-fetch').then(async ({ default: fetch }) => {
     }
 
     section('2. Artist Extraction & Enrichment Readiness');
-    const artistGenresCount = await db.collection('artistGenres').countDocuments().catch(()=>0);
+  const artistGenresCount = await db.collection('artistGenres').countDocuments().catch(()=>0);
     console.log(`artistGenres: ${artistGenresCount}`);
-    const enrichedSample = await db.collection('artistGenres').findOne({ spotifyId: { $ne: null } }, { projection: { name:1, genres:1 } });
-    const essentiaCoverage = await db.collection('artistGenres').countDocuments({ 'essentiaAudioProfile.trackMatrix': { $exists: true } }).catch(()=>0);
+  const enrichedSample = await db.collection('artistGenres').findOne({ spotifyId: { $ne: null } }, { projection: { name:1, genres:1 } });
+  const essentiaCoverage = await db.collection('artistGenres').countDocuments({ 'essentiaAudioProfile.trackMatrix': { $exists: true } }).catch(()=>0);
+  const edmWeightedArtists = await db.collection('artistGenres').countDocuments({ edmWeight: { $gt: 0 } }).catch(()=>0);
 
     summary.phases.artist = {
       artistGenres: artistGenresCount,
       spotifyEnriched: !!enrichedSample,
       essentiaProfiles: essentiaCoverage,
+      edmWeightedPercent: artistGenresCount ? +((edmWeightedArtists/artistGenresCount)*100).toFixed(1) : 0,
       status: artistGenresCount > 100 ? 'ok' : 'baseline'
     };
 
@@ -194,9 +217,16 @@ import('node-fetch').then(async ({ default: fetch }) => {
     };
 
     const idx = await profilesColl.listIndexes().toArray();
-    const hasTTL = idx.some(i => i.key?.expiresAt && i.expireAfterSeconds);
-    if (!hasTTL) summary.warnings.push('Missing TTL index on user_sound_profiles.expiresAt');
-    summary.phases.userProfiles.ttlIndex = hasTTL;
+    // TTL detection: treat presence of expiresAt index as existing even if expireAfterSeconds=0 (mis-config) so we can emit specific guidance
+    const ttlIdx = idx.find(i => i.key && i.key.expiresAt === 1);
+    const ttlConfigured = ttlIdx && typeof ttlIdx.expireAfterSeconds === 'number' && ttlIdx.expireAfterSeconds > 0;
+    if (!ttlIdx) {
+      summary.warnings.push('Missing TTL index on user_sound_profiles.expiresAt');
+    } else if (!ttlConfigured) {
+      summary.warnings.push('TTL index on user_sound_profiles.expiresAt has expireAfterSeconds=0 or undefined; recreate with desired retention (e.g., 2592000 for 30d)');
+    }
+    summary.phases.userProfiles.ttlIndex = !!ttlIdx;
+    if (ttlIdx) summary.phases.userProfiles.ttlExpireAfterSeconds = ttlIdx.expireAfterSeconds;
 
     section('6. API Smoke Tests (optional)');
     const apiBase = process.env.DASHBOARD_BASE_URL; // e.g., https://sonar-edm-staging.herokuapp.com
