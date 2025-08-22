@@ -21,7 +21,9 @@ const { MongoClient } = require('mongodb');
 
 class PipelinePerformanceMonitor {
   constructor() {
-    this.mongoUrl = process.env.MONGODB_URI || process.env.MONGODB_URL || 'mongodb+srv://sonar-edm-user:L5x9Pk2v8Rs3nQm@sonar-edm.fos0w.mongodb.net/test?retryWrites=true&w=majority';
+  // Use environment-provided MongoDB URI. Do NOT store credentials in source.
+  // For local development, set MONGODB_URI to e.g. 'mongodb://localhost:27017/test'
+  this.mongoUrl = process.env.MONGODB_URI || process.env.MONGODB_URL || 'mongodb://localhost:27017/test';
     this.db = null;
     this.metrics = {
       enhancementEntries: {
