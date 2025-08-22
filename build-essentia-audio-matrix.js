@@ -15,7 +15,8 @@ const crypto = require('crypto');
 
 // Configuration (env overrides highly encouraged)
 const ESSENTIA_SERVICE_URL = process.env.ESSENTIA_SERVICE_URL || 'https://tiko-essentia-audio-service-2eff1b2af167.herokuapp.com';
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://furqanzemail:XJfBasTxNcle2CEs@sonaredm.g4cdx.mongodb.net/test?retryWrites=true&w=majority&appName=SonarEDM';
+// Prefer environment variable MONGODB_URI; fallback to localhost for local testing.
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/sonaredm';
 const DB_NAME = process.env.MONGODB_DB || 'test';
 const MAX_TRACKS = parseInt(process.env.ESSENTIA_MAX_TRACKS || '20', 10);
 const CONCURRENCY = Math.max(1, parseInt(process.env.ESSENTIA_WORKER_CONCURRENCY || '2', 10));
