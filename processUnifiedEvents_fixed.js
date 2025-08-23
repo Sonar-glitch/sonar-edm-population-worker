@@ -21,18 +21,19 @@ const UnifiedEvent = require("./models/UnifiedEvent");
 // Import validation and processing functions
 const { enhanceEventsWithOCR } = require("./lib/ocrUtils");
 const {
-  validateAndNormalizeEvent,
-  mergeAndDeduplicateEvents,
-  calculateCompletenessScore,
-  cleanupOldEvents,
-  validateUnifiedArchitecture
+    validateAndNormalizeEvent,
+    mergeAndDeduplicateEvents,
+    calculateCompletenessScore,
+    cleanupOldEvents,
+    validateUnifiedArchitecture
 } = require("./lib/eventValidation");
+const { buildArchitectureValidator } = require('./lib/architectureValidatorWrapper');
 const RecommendationEnhancer = require("./lib/recommendationEnhancer");
 
 const MONGODB_URI = process.env.MONGODB_URI;
 
-// Architecture validation
-const architectureValidator = validateUnifiedArchitecture();
+// Architecture validation (wrapped safely)
+const architectureValidator = buildArchitectureValidator(validateUnifiedArchitecture());
 
 // --- Database Connection ---
 async function connectDB() {
@@ -62,10 +63,15 @@ async function disconnectDB() {
 async function processAndValidateEvents(eventSources) {
     console.log("🔍 Processing and validating events...");
     
-    // Validate architecture compliance first
-    if (!architectureValidator.isCompliant()) {
-        console.warn("⚠️ Architecture validation failed. Auto-fixing...");
-        await architectureValidator.autoFix();
+    // Validate architecture compliance first (safe async wrapper)
+    try {
+        const compliant = await architectureValidator.isCompliant();
+        if (!compliant) {
+            console.warn("⚠️ Architecture validation failed. Auto-fixing...");
+            await architectureValidator.autoFix();
+        }
+    } catch (err) {
+        console.warn('Architecture validation check failed (fallback to continue):', err && err.message);
     }
     
     const validEvents = [];
@@ -157,9 +163,13 @@ async function generateProcessingReport(stats) {
     console.log("============================");
     
     // Architecture validation report
-    const architectureStatus = architectureValidator.getStatus();
-    console.log(`🏗️ Architecture Status: ${architectureStatus.compliant ? '✅ Compliant' : '⚠️ Non-compliant'}`);
-    console.log(`📍 Single Source of Truth: ${architectureStatus.singleSource ? '✅ events_unified' : '❌ Multiple sources'}`);
+    try {
+        const architectureStatus = await architectureValidator.getStatus();
+        console.log(`🏗️ Architecture Status: ${architectureStatus.compliant ? '✅ Compliant' : '⚠️ Non-compliant'}`);
+        console.log(`📍 Single Source of Truth: ${architectureStatus.singleSource ? '✅ events_unified' : '❌ Multiple sources'}`);
+    } catch (err) {
+        console.warn('Failed to get architecture status (continuing):', err && err.message);
+    }
     console.log("============================\n");
 }
 
@@ -243,6 +253,18 @@ async function main() {
 }
 
 if (require.main === module) {
+    // If this process is run as a web dyno, start a minimal health route
+    const PORT = process.env.PORT || 0;
+    if (PORT && Number(PORT) > 0) {
+        try {
+            const express = require('express');
+            const app = express();
+            app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: Date.now() }));
+            app.listen(PORT, () => console.log(`Health server listening on ${PORT}`));
+        } catch (err) {
+            console.warn('Express not available for health route:', err && err.message);
+        }
+    }
     main();
 }
 
