@@ -120,20 +120,43 @@ async function saveUnifiedEvents(events) {
     }
     
     try {
-        const operations = events.map(event => ({
-            updateOne: {
-                filter: { sourceId: event.sourceId },
-                update: { $set: event },
-                upsert: true
+        // Filter out events that don't have a stable dedupe key.
+        // Prefer `eventKey` (canonical dedupe key). Fall back to `sourceId` when present.
+        const validOps = [];
+        let skipped = 0;
+
+        for (const event of events) {
+            const hasEventKey = event && (event.eventKey || (event.eventKey === 0));
+            const hasSourceId = event && (event.sourceId || (event.sourceId === 0));
+
+            if (!hasEventKey && !hasSourceId) {
+                skipped++;
+                console.warn(`⚠️ Skipping upsert: missing eventKey and sourceId for event (name:${event && event.name} id:${event && event.id})`);
+                continue;
             }
-        }));
-        
-        const result = await UnifiedEvent.bulkWrite(operations, { ordered: false });
+
+            const filter = hasEventKey ? { eventKey: event.eventKey } : { sourceId: event.sourceId };
+
+            validOps.push({
+                updateOne: {
+                    filter,
+                    update: { $set: event },
+                    upsert: true
+                }
+            });
+        }
+
+        if (validOps.length === 0) {
+            console.log(`ℹ️ No valid events to upsert (skipped ${skipped} invalid events)`);
+            return { saved: 0, updated: 0, errors: skipped, cleaned: 0 };
+        }
+
+        const result = await UnifiedEvent.bulkWrite(validOps, { ordered: false });
         
         // Auto-cleanup old events during save
         const cleanupCount = await cleanupOldEvents(UnifiedEvent);
         
-        console.log(`✅ Bulk operation complete: ${result.upsertedCount} new, ${result.modifiedCount} updated`);
+        console.log(`✅ Bulk operation complete: ${result.upsertedCount} new, ${result.modifiedCount} updated (skipped ${typeof skipped !== 'undefined' ? skipped : 0} invalid events)`);
         if (cleanupCount > 0) {
             console.log(`🧹 Auto-cleanup: Removed ${cleanupCount} old events during save`);
         }
@@ -141,7 +164,7 @@ async function saveUnifiedEvents(events) {
         return {
             saved: result.upsertedCount,
             updated: result.modifiedCount,
-            errors: result.writeErrors ? result.writeErrors.length : 0,
+            errors: (result.writeErrors ? result.writeErrors.length : 0) + (skipped || 0),
             cleaned: cleanupCount
         };
     } catch (error) {

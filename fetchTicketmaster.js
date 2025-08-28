@@ -148,26 +148,47 @@ async function fetchEventsForCity(cityRequest) {
 }));
 
 
-            const bulkOps = transformedEvents.map(event => ({
-    updateOne: {
-        filter: { 
-            source: event.source, 
-            sourceId: event.sourceId 
-        },
-        update: { 
-            $set: {
-                ...event,
-                lastUpdated: new Date()
-            }
-        },
-        upsert: true
-    }
-}));
+            // Guard bulk ops: skip transformed events missing both eventKey and sourceId
+            const bulkOps = [];
+            let skipped = 0;
 
-try {
-    const bulkResult = await mongoose.connection.db.collection("events_ticketmaster").bulkWrite(bulkOps, {
-        ordered: false // Continue processing even if some operations fail
-    });
+            for (const event of transformedEvents) {
+                const hasEventKey = event && (event.eventKey || (event.eventKey === 0));
+                const hasSourceId = event && (event.sourceId || (event.sourceId === 0));
+
+                if (!hasEventKey && !hasSourceId) {
+                    skipped++;
+                    console.warn(`⚠️ Skipping ticketmaster upsert: missing eventKey and sourceId for event (name:${event && event.name} id:${event && event.sourceId})`);
+                    continue;
+                }
+
+                const filter = hasEventKey ? { eventKey: event.eventKey } : { source: event.source, sourceId: event.sourceId };
+
+                bulkOps.push({
+                    updateOne: {
+                        filter,
+                        update: {
+                            $set: {
+                                ...event,
+                                lastUpdated: new Date()
+                            }
+                        },
+                        upsert: true
+                    }
+                });
+            }
+
+            try {
+                if (bulkOps.length === 0) {
+                    console.log(`ℹ️ No valid ticketmaster events to upsert (skipped ${skipped} invalid events)`);
+                } else {
+                    const bulkResult = await mongoose.connection.db.collection("events_ticketmaster").bulkWrite(bulkOps, {
+                        ordered: false // Continue processing even if some operations fail
+                    });
+
+                    console.log(` Upserted ${transformedEvents.length} events to events_ticketmaster for ${cityRequest.city}`);
+                    console.log(` Inserted: ${bulkResult.insertedCount}, Modified: ${bulkResult.modifiedCount}, Upserted: ${bulkResult.upsertedCount}`);
+                }
     
     console.log(`💾 Upserted ${transformedEvents.length} events to events_ticketmaster for ${cityRequest.city}`);
     console.log(`📊 Inserted: ${bulkResult.insertedCount}, Modified: ${bulkResult.modifiedCount}, Upserted: ${bulkResult.upsertedCount}`);

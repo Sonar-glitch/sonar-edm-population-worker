@@ -224,18 +224,38 @@ async function saveUnifiedEvents(events) {
         return { saved: 0, updated: 0, errors: 0 };
     }
     
-    const bulkOps = events.map(event => ({
-        updateOne: {
-            filter: { 
-                              sourceId: event.sourceId 
-            },
-            update: { $set: event },
-            upsert: true,
-        },
-    }));
-    
+    // Build guarded bulk operations: skip events missing both eventKey and sourceId
+    const validOps = [];
+    let skipped = 0;
+
+    for (const event of events) {
+        const hasEventKey = event && (event.eventKey || (event.eventKey === 0));
+        const hasSourceId = event && (event.sourceId || (event.sourceId === 0));
+
+        if (!hasEventKey && !hasSourceId) {
+            skipped++;
+            console.warn(`⚠️ Skipping upsert: missing eventKey and sourceId for event (name:${event && event.name} id:${event && event.id})`);
+            continue;
+        }
+
+        const filter = hasEventKey ? { eventKey: event.eventKey } : { sourceId: event.sourceId };
+
+        validOps.push({
+            updateOne: {
+                filter,
+                update: { $set: event },
+                upsert: true
+            }
+        });
+    }
+
     try {
-        const bulkResult = await UnifiedEvent.bulkWrite(bulkOps);
+        if (validOps.length === 0) {
+            console.log(`ℹ️ No valid events to upsert (skipped ${skipped} invalid events)`);
+            return { saved: 0, updated: 0, errors: skipped };
+        }
+
+        const bulkResult = await UnifiedEvent.bulkWrite(validOps);
         
         console.log("📊 Unified events save result:");
         console.log(`  Inserted: ${bulkResult.insertedCount}`);

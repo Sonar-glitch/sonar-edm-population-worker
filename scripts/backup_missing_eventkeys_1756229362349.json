@@ -1,0 +1,27 @@
+[
+  {
+    "_id": "68a402ee71b6bded697267f1",
+    "sourceId": "Z7r9jZ1A7p7PS",
+    "createdAt": "2025-08-26T14:10:44.871Z",
+    "date": "2025-08-31T00:00:00.000Z",
+    "location": {
+      "type": "Point",
+      "coordinates": [
+        0,
+        0
+      ]
+    },
+    "name": "Sofi Tukker",
+    "source": "ticketmaster",
+    "updatedAt": "2025-08-26T14:10:44.871Z",
+    "venue": {
+      "name": "Cabana Pool Bar",
+      "address": "11 Polson St., Toronto, ON M5A 1A4",
+      "city": "Toronto",
+      "coordinates": [
+        0,
+        0
+      ]
+    }
+  }
+]

@@ -1,0 +1,11 @@
+# Auto-generated helper file for heroku-workers/event-population: ignore .env files
+.env
+.env.local
+.env.*
+**/.env
+
+# To apply in this repo:
+# git rm --cached .env .env.local .env.*
+# git add .gitignore
+# git commit -m "chore: untrack .env and add to .gitignore"
+# git push origin HEAD
