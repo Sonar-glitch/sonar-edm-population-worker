@@ -140,6 +140,40 @@ async function saveUnifiedEvents(events) {
 
             // Build a clean update document that excludes null/undefined keys
             const updateDoc = Object.assign({}, event);
+            // Defensive normalization: some source events contain a location object
+            // with only `coordinates` (no `type`) or with numeric strings. Ensure
+            // we always produce a proper GeoJSON Point here to avoid MongoDB
+            // errors like "unknown GeoJSON type" during upsert.
+            try {
+                if (updateDoc.location && updateDoc.location.coordinates) {
+                    const coords = updateDoc.location.coordinates;
+                    if (Array.isArray(coords) && coords.length >= 2) {
+                        const lon = Number(coords[0]);
+                        const lat = Number(coords[1]);
+                        if (Number.isFinite(lon) && Number.isFinite(lat)) {
+                            // Normalize to explicit GeoJSON Point with numeric coords
+                            updateDoc.location = { type: (updateDoc.location.type || 'Point'), coordinates: [lon, lat] };
+                        } else {
+                            updateDoc._location_normalization_failed = true;
+                            delete updateDoc.location;
+                        }
+                    } else if (typeof coords === 'object' && coords !== null && ('lat' in coords || 'lon' in coords)) {
+                        const lon = Number(coords.lon || coords.lng || coords.longitude);
+                        const lat = Number(coords.lat || coords.latitude);
+                        if (Number.isFinite(lon) && Number.isFinite(lat)) {
+                            updateDoc.location = { type: (updateDoc.location.type || 'Point'), coordinates: [lon, lat] };
+                        } else {
+                            updateDoc._location_normalization_failed = true;
+                            delete updateDoc.location;
+                        }
+                    }
+                }
+            } catch (e) {
+                // Non-fatal: if something unexpected is present, drop location to
+                // avoid causing a bulkWrite failure.
+                updateDoc._location_normalization_failed = true;
+                delete updateDoc.location;
+            }
             if (updateDoc.eventKey === null || updateDoc.eventKey === undefined || updateDoc.eventKey === '') {
                 delete updateDoc.eventKey;
             }
